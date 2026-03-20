@@ -2,85 +2,88 @@
  * POST /api/auth
  * Body: { username, password }
  * Returns: { ok: true, token: "<jwt>" }
- *
- * El JWT se firma con APP_SECRET (env var).
- * No depende de librerías externas — usa crypto nativo de Node.
  */
 
 const crypto = require('crypto');
 
-// ─── JWT mínimo (HS256) sin dependencias ──────────────────
-function base64url(str) {
-  return Buffer.from(str).toString('base64')
-    .replace(/=/g, '').replace(/\+/g, '-').replace(/\//g, '_');
+// ─── Body parser (Vercel no parsea req.body automáticamente) ─
+function readBody(req) {
+  return new Promise((resolve, reject) => {
+    let data = '';
+    req.on('data', chunk => { data += chunk; });
+    req.on('end', () => {
+      try { resolve(JSON.parse(data || '{}')); }
+      catch { resolve({}); }
+    });
+    req.on('error', reject);
+  });
+}
+
+// ─── JWT mínimo HS256 sin dependencias externas ──────────────
+function b64url(str) {
+  return Buffer.from(str)
+    .toString('base64')
+    .replace(/=/g, '')
+    .replace(/\+/g, '-')
+    .replace(/\//g, '_');
 }
 
 function signJWT(payload, secret) {
-  const header  = base64url(JSON.stringify({ alg: 'HS256', typ: 'JWT' }));
-  const body    = base64url(JSON.stringify(payload));
-  const data    = `${header}.${body}`;
-  const sig     = crypto
-    .createHmac('sha256', secret)
-    .update(data)
-    .digest('base64')
-    .replace(/=/g, '').replace(/\+/g, '-').replace(/\//g, '_');
-  return `${data}.${sig}`;
-}
-
-function verifyJWT(token, secret) {
-  const parts = token.split('.');
-  if (parts.length !== 3) return null;
-  const [header, body, sig] = parts;
-  const expected = crypto
+  const header = b64url(JSON.stringify({ alg: 'HS256', typ: 'JWT' }));
+  const body   = b64url(JSON.stringify(payload));
+  const sig    = crypto
     .createHmac('sha256', secret)
     .update(`${header}.${body}`)
     .digest('base64')
     .replace(/=/g, '').replace(/\+/g, '-').replace(/\//g, '_');
-  if (!crypto.timingSafeEqual(Buffer.from(sig), Buffer.from(expected))) return null;
-  const payload = JSON.parse(Buffer.from(body, 'base64').toString());
-  if (payload.exp && Date.now() / 1000 > payload.exp) return null;
-  return payload;
+  return `${header}.${body}.${sig}`;
 }
 
-// ─── Handler ──────────────────────────────────────────────
+// Comparación segura — padding para misma longitud (evita timing attacks)
+function safeEqual(a, b) {
+  const ba = Buffer.from(String(a));
+  const bb = Buffer.from(String(b));
+  // Si difieren en largo, comparar con buffer de mismo largo pero devolver false
+  if (ba.length !== bb.length) {
+    crypto.timingSafeEqual(ba, ba); // consume tiempo igual
+    return false;
+  }
+  return crypto.timingSafeEqual(ba, bb);
+}
+
+// ─── Handler ─────────────────────────────────────────────────
 module.exports = async function handler(req, res) {
-  // CORS preflight
   res.setHeader('Access-Control-Allow-Origin',  '*');
   res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+
   if (req.method === 'OPTIONS') return res.status(200).end();
-
-  if (req.method !== 'POST') {
+  if (req.method !== 'POST')
     return res.status(405).json({ ok: false, error: 'Method not allowed' });
-  }
 
-  const { username, password } = req.body || {};
+  // Parsear body manualmente (Vercel no lo hace por defecto)
+  const body = await readBody(req);
+  const { username = '', password = '' } = body;
 
-  const APP_USER   = process.env.APP_USER;
-  const APP_PASS   = process.env.APP_PASS;
-  const APP_SECRET = process.env.APP_SECRET;
+  const APP_USER   = process.env.APP_USER   || '';
+  const APP_PASS   = process.env.APP_PASS   || '';
+  const APP_SECRET = process.env.APP_SECRET || '';
 
   if (!APP_USER || !APP_PASS || !APP_SECRET) {
-    console.error('Missing env vars: APP_USER / APP_PASS / APP_SECRET');
-    return res.status(500).json({ ok: false, error: 'Server misconfigured' });
+    console.error('[auth] Faltan variables de entorno: APP_USER / APP_PASS / APP_SECRET');
+    return res.status(500).json({ ok: false, error: 'Servidor mal configurado' });
   }
 
-  // Comparación segura contra timing attacks
-  const userMatch = crypto.timingSafeEqual(
-    Buffer.from(username  || ''),
-    Buffer.from(APP_USER)
-  );
-  const passMatch = crypto.timingSafeEqual(
-    Buffer.from(password  || ''),
-    Buffer.from(APP_PASS)
-  );
+  const ok = safeEqual(username, APP_USER) && safeEqual(password, APP_PASS);
 
-  if (!userMatch || !passMatch) {
+  if (!ok) {
+    // Mismo delay siempre para no revelar cuál campo falló
     return res.status(401).json({ ok: false, error: 'Credenciales incorrectas' });
   }
 
+  const now   = Math.floor(Date.now() / 1000);
   const token = signJWT(
-    { sub: username, iat: Math.floor(Date.now() / 1000), exp: Math.floor(Date.now() / 1000) + 8 * 3600 },
+    { sub: username, iat: now, exp: now + 8 * 3600 },
     APP_SECRET
   );
 

@@ -4,110 +4,114 @@
  * Verifica el JWT de sesión (header X-Session-Token),
  * luego hace forward a api-pullman.konnectpro.cl
  * inyectando Authorization y x-api-key desde env vars.
- *
- * El Bearer token de Konnect NUNCA llega al navegador.
+ * Las keys de Konnect NUNCA llegan al navegador.
  */
 
 const crypto = require('crypto');
 const https  = require('https');
 
-// ─── JWT verify (mismo helper que auth.js, sin dependencias) ──
+// ─── JWT verify ──────────────────────────────────────────────
+function b64url(str) {
+  return Buffer.from(str)
+    .toString('base64')
+    .replace(/=/g, '').replace(/\+/g, '-').replace(/\//g, '_');
+}
+
 function verifyJWT(token, secret) {
   try {
     const parts = (token || '').split('.');
     if (parts.length !== 3) return null;
+
     const [header, body, sig] = parts;
-    const expected = crypto
-      .createHmac('sha256', secret)
-      .update(`${header}.${body}`)
-      .digest('base64')
-      .replace(/=/g, '').replace(/\+/g, '-').replace(/\//g, '_');
-    if (sig.length !== expected.length) return null;
-    if (!crypto.timingSafeEqual(Buffer.from(sig), Buffer.from(expected))) return null;
-    const payload = JSON.parse(Buffer.from(body, 'base64').toString());
-    if (payload.exp && Date.now() / 1000 > payload.exp) return null;
+    const expected = b64url(
+      crypto.createHmac('sha256', secret)
+        .update(`${header}.${body}`)
+        .digest()
+        .toString('binary')
+    );
+
+    // Comparación segura de longitud fija
+    const bSig = Buffer.from(sig      + '='.repeat((4 - sig.length      % 4) % 4), 'base64');
+    const bExp = Buffer.from(expected + '='.repeat((4 - expected.length % 4) % 4), 'base64');
+
+    if (bSig.length !== bExp.length) return null;
+    if (!crypto.timingSafeEqual(bSig, bExp)) return null;
+
+    const payload = JSON.parse(Buffer.from(body, 'base64').toString('utf8'));
+    if (payload.exp && Math.floor(Date.now() / 1000) > payload.exp) return null;
     return payload;
-  } catch { return null; }
+  } catch (e) {
+    return null;
+  }
 }
 
-// ─── Minimal HTTPS fetch (Node built-in, no dependencies) ──
+// ─── HTTPS GET sin dependencias externas ────────────────────
 function httpsGet(url, headers) {
   return new Promise((resolve, reject) => {
     const req = https.get(url, { headers }, res => {
-      let data = '';
-      res.on('data', chunk => { data += chunk; });
-      res.on('end', () => resolve({ status: res.statusCode, body: data }));
+      const chunks = [];
+      res.on('data', c => chunks.push(c));
+      res.on('end', () => resolve({
+        status: res.statusCode,
+        body:   Buffer.concat(chunks).toString('utf8'),
+      }));
     });
     req.on('error', reject);
-    req.setTimeout(15000, () => { req.destroy(); reject(new Error('Timeout')); });
+    req.setTimeout(20000, () => { req.destroy(); reject(new Error('Timeout upstream')); });
   });
 }
 
-// ─── Allowed paths whitelist (security: prevent SSRF) ──────
-const ALLOWED_PREFIXES = [
+// ─── Whitelist de paths (anti-SSRF) ─────────────────────────
+const ALLOWED = [
   '/api/v2/users',
   '/api/v2/reports/render_report/',
 ];
+const isAllowed = p => ALLOWED.some(a => p.startsWith(a));
 
-function isAllowedPath(path) {
-  return ALLOWED_PREFIXES.some(p => path.startsWith(p));
-}
-
-// ─── Handler ───────────────────────────────────────────────
+// ─── Handler ─────────────────────────────────────────────────
 module.exports = async function handler(req, res) {
-  // CORS — solo permite el mismo origen (Vercel/Render domain)
-  const origin = req.headers['origin'] || '';
-  const allowedOrigins = (process.env.ALLOWED_ORIGINS || '')
-    .split(',').map(s => s.trim()).filter(Boolean);
-
-  // En desarrollo permitimos cualquier origen; en prod solo los registrados
-  if (process.env.NODE_ENV === 'production' && allowedOrigins.length > 0) {
-    if (allowedOrigins.includes(origin)) {
-      res.setHeader('Access-Control-Allow-Origin', origin);
-    } else {
-      return res.status(403).json({ ok: false, error: 'Origin not allowed' });
-    }
-  } else {
-    res.setHeader('Access-Control-Allow-Origin', '*');
-  }
-
+  // CORS
+  res.setHeader('Access-Control-Allow-Origin',  '*');
   res.setHeader('Access-Control-Allow-Methods', 'GET, OPTIONS');
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type, X-Session-Token');
+  res.setHeader('Cache-Control', 'no-store');
+
   if (req.method === 'OPTIONS') return res.status(200).end();
-
-  if (req.method !== 'GET') {
+  if (req.method !== 'GET')
     return res.status(405).json({ ok: false, error: 'Method not allowed' });
-  }
 
-  // ── 1. Verificar sesión ──────────────────────────────────
-  const APP_SECRET = process.env.APP_SECRET;
+  // 1. Verificar sesión
+  const APP_SECRET = process.env.APP_SECRET || '';
   if (!APP_SECRET) {
-    return res.status(500).json({ ok: false, error: 'Server misconfigured' });
+    console.error('[proxy] Falta APP_SECRET');
+    return res.status(500).json({ ok: false, error: 'Servidor mal configurado' });
   }
 
   const sessionToken = req.headers['x-session-token'] || '';
-  const payload = verifyJWT(sessionToken, APP_SECRET);
-  if (!payload) {
-    return res.status(401).json({ ok: false, error: 'Sesión inválida o expirada' });
+  if (!verifyJWT(sessionToken, APP_SECRET)) {
+    return res.status(401).json({ ok: false, error: 'Sesión inválida o expirada. Inicia sesión nuevamente.' });
   }
 
-  // ── 2. Validar el path destino ───────────────────────────
-  const targetPath = decodeURIComponent(req.query.path || '');
-  if (!targetPath || !isAllowedPath(targetPath)) {
+  // 2. Validar path destino
+  const rawPath = req.query && req.query.path ? req.query.path : '';
+  const targetPath = decodeURIComponent(rawPath);
+
+  if (!targetPath || !isAllowed(targetPath)) {
     return res.status(400).json({ ok: false, error: 'Path no permitido' });
   }
 
-  // ── 3. Obtener credenciales del servidor ─────────────────
-  const KONNECT_TOKEN = process.env.KONNECT_BEARER_TOKEN;
-  const KONNECT_KEY   = process.env.KONNECT_API_KEY;
+  // 3. Credenciales del servidor
+  const KONNECT_TOKEN = process.env.KONNECT_BEARER_TOKEN || '';
+  const KONNECT_KEY   = process.env.KONNECT_API_KEY      || '';
 
   if (!KONNECT_TOKEN || !KONNECT_KEY) {
-    console.error('Missing env vars: KONNECT_BEARER_TOKEN / KONNECT_API_KEY');
-    return res.status(500).json({ ok: false, error: 'Server misconfigured' });
+    console.error('[proxy] Faltan KONNECT_BEARER_TOKEN o KONNECT_API_KEY');
+    return res.status(500).json({ ok: false, error: 'Servidor mal configurado' });
   }
 
-  // ── 4. Hacer la petición a Konnect ──────────────────────
+  // 4. Forward a Konnect
   const targetURL = `https://api-pullman.konnectpro.cl${targetPath}`;
+  console.log('[proxy] →', targetURL);
 
   try {
     const { status, body } = await httpsGet(targetURL, {
@@ -122,13 +126,11 @@ module.exports = async function handler(req, res) {
       'user-agent':      'PullmanDashboard/1.0',
     });
 
-    // Reenviar la respuesta tal cual (el front espera el mismo JSON)
-    res.setHeader('Content-Type', 'application/json');
-    res.setHeader('Cache-Control', 'no-store');
+    res.setHeader('Content-Type', 'application/json; charset=utf-8');
     return res.status(status).send(body);
 
   } catch (err) {
-    console.error('Proxy error:', err.message);
-    return res.status(502).json({ ok: false, error: `Upstream error: ${err.message}` });
+    console.error('[proxy] Error upstream:', err.message);
+    return res.status(502).json({ ok: false, error: `Error upstream: ${err.message}` });
   }
 };

@@ -1,186 +1,222 @@
-# Pullman Bus · Pago Empresarios — Guía de Seguridad y Deploy
-
-## Arquitectura de seguridad
-
-```
-NAVEGADOR (front)
-    │
-    │  Solo habla con TU servidor
-    │  Nunca ve keys de Konnect
-    ▼
-┌─────────────────────────────┐
-│   VERCEL / RENDER           │
-│                             │
-│  /api/auth  ← login         │  ← APP_USER / APP_PASS / APP_SECRET
-│  /api/proxy ← todas las     │  ← KONNECT_BEARER_TOKEN / KONNECT_API_KEY
-│              peticiones API │
-└─────────────────────────────┘
-    │
-    │  Solo el servidor conoce estas keys
-    ▼
-api-pullman.konnectpro.cl
-```
-
-**Qué se protegió:**
-- ✅ `KONNECT_BEARER_TOKEN` — en env var del servidor, nunca en JS del cliente
-- ✅ `KONNECT_API_KEY` — ídem
-- ✅ Login con usuario/contraseña protegido contra timing attacks
-- ✅ JWT de sesión firmado con `APP_SECRET` (8h de duración)
-- ✅ Proxy con whitelist de paths (previene SSRF)
-- ✅ CORS restringido a dominios propios en producción
-- ✅ Sesión en `sessionStorage` (se borra al cerrar la pestaña)
+# Pullman Bus · Pago Empresarios — Deploy en Vercel
 
 ---
 
-## Estructura del proyecto
+## Estructura de archivos (exacta)
 
 ```
 pullman-dashboard/
-├── index.html          ← UI + pantalla de login
-├── style.css           ← Estilos
-├── script.js           ← Lógica (sin ninguna key)
+├── index.html
+├── script.js
+├── style.css
 ├── api/
-│   ├── auth.js         ← Serverless: login → JWT
-│   └── proxy.js        ← Serverless: forward a Konnect con keys
-├── vercel.json         ← Config Vercel + headers de seguridad
-├── render.yaml         ← Config Render
-├── .env.example        ← Template de variables (nunca subir .env)
-├── .gitignore
-└── README.md
+│   ├── auth.js
+│   └── proxy.js
+├── vercel.json
+├── .gitignore          ← renombrar gitignore.txt → .gitignore
+└── .env.example        ← renombrar env.example → .env.example
 ```
+
+> ⚠️ La carpeta `api/` debe estar en la raíz del proyecto.
+> Vercel la detecta automáticamente y convierte cada .js en una serverless function.
 
 ---
 
-## PASO 1 · Generar el APP_SECRET
+## PASO 1 — Preparar archivos locales
+
+1. Descarga todos los archivos
+2. Crea la carpeta `pullman-dashboard/`
+3. Dentro crea la subcarpeta `api/`
+4. Coloca los archivos así:
+
+```
+pullman-dashboard/
+├── index.html        ← aquí
+├── script.js         ← aquí
+├── style.css         ← aquí
+├── vercel.json       ← aquí
+├── api/
+│   ├── auth.js       ← aquí
+│   └── proxy.js      ← aquí
+```
+
+5. Renombra los archivos especiales:
+   - `gitignore.txt`  →  `.gitignore`
+   - `env.example`    →  `.env.example`
+
+---
+
+## PASO 2 — Generar el APP_SECRET
+
+Abre una terminal y ejecuta:
 
 ```bash
 node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"
-# Ejemplo: a3f8c2d1e4b7...  (64 chars)
 ```
 
-Guarda ese valor — lo necesitarás en el paso 3.
+Copia el resultado (64 caracteres hex). Lo necesitarás en el Paso 5.
+
+Ejemplo de output:
+```
+a3f8c2d1e4b70923f1d6e5c8b2a14d7e9f03c2b1a8e5d4c7b6a3f2e1d0c9b8a7
+```
 
 ---
 
-## PASO 2 · Subir a GitHub
+## PASO 3 — Subir a GitHub
 
 ```bash
+# Entrar a la carpeta
 cd pullman-dashboard
-git init
-git add .
-git commit -m "feat: pago empresarios v2 - secure proxy"
 
-# Crear repo en github.com, luego:
-git remote add origin https://github.com/TU_ORG/pullman-dashboard.git
+# Inicializar git
+git init
+
+# Agregar todos los archivos
+git add .
+
+# Primer commit
+git commit -m "feat: pago empresarios dashboard v2"
+```
+
+Ahora ve a [github.com](https://github.com) y:
+1. Click en **"New repository"**
+2. Nombre: `pullman-dashboard` (o el que prefieras)
+3. Visibilidad: **Private** ✅
+4. **NO** marcar "Add a README file"
+5. Click **"Create repository"**
+
+GitHub te mostrará comandos. Ejecuta los de "push an existing repository":
+
+```bash
+git remote add origin https://github.com/TU_USUARIO/pullman-dashboard.git
 git branch -M main
 git push -u origin main
 ```
 
-> El `.gitignore` ya excluye `.env` y cualquier secreto local.
+---
+
+## PASO 4 — Crear proyecto en Vercel
+
+1. Ve a [vercel.com](https://vercel.com) e inicia sesión
+2. Click en **"Add New..."** → **"Project"**
+3. En "Import Git Repository" busca `pullman-dashboard` y click **"Import"**
+4. En la pantalla de configuración:
+   - **Framework Preset:** `Other`  
+   - **Root Directory:** `.` (dejar por defecto)
+   - **Build Command:** *(dejar completamente vacío)*
+   - **Output Directory:** *(dejar completamente vacío)*
+   - **Install Command:** *(dejar completamente vacío)*
+
+⛔ **No hacer click en Deploy todavía** — primero agregar las variables de entorno.
 
 ---
 
-## PASO 3 · Variables de entorno
+## PASO 5 — Agregar variables de entorno en Vercel
 
-Estas variables van **en el panel de Vercel/Render**, NUNCA en el código:
+En la misma pantalla de configuración, busca la sección **"Environment Variables"** y agrega estas 6 variables una por una:
 
-| Variable               | Valor                                      |
-|------------------------|--------------------------------------------|
-| `APP_USER`             | El usuario de login (ej: `contabilidad`)   |
-| `APP_PASS`             | Contraseña segura (ej: `Pullman#2026!`)    |
-| `APP_SECRET`           | El hex generado en el Paso 1               |
-| `KONNECT_BEARER_TOKEN` | El Bearer token de Konnect Pro             |
-| `KONNECT_API_KEY`      | `QHH79qF2fsWEx98pvNeZpQ`                  |
-| `ALLOWED_ORIGINS`      | `https://TU-DOMINIO.vercel.app` (en prod)  |
-| `NODE_ENV`             | `production`                               |
+| Nombre                  | Valor                                          |
+|-------------------------|------------------------------------------------|
+| `APP_USER`              | El usuario de login (ej: `contabilidad`)       |
+| `APP_PASS`              | Una contraseña segura (ej: `Pullman#2026!`)    |
+| `APP_SECRET`            | El hex de 64 chars generado en el Paso 2       |
+| `KONNECT_BEARER_TOKEN`  | El Bearer token completo de Konnect Pro        |
+| `KONNECT_API_KEY`       | `QHH79qF2fsWEx98pvNeZpQ`                      |
+| `NODE_ENV`              | `production`                                   |
+
+Para cada variable:
+1. Escribe el nombre en el campo "Name"
+2. Pega el valor en el campo "Value"
+3. Asegúrate que esté marcado: ✅ Production ✅ Preview ✅ Development
+4. Click **"Add"**
 
 ---
 
-## PASO 4 · Deploy en Vercel
+## PASO 6 — Deploy
 
-### CLI (más rápido)
+Click en el botón **"Deploy"**.
 
-```bash
-npm i -g vercel
-vercel login
-vercel --prod
+Vercel mostrará los logs en tiempo real. El build exitoso se ve así:
+
+```
+✓ Running "vercel build"
+✓ Building...
+✓ Deploying...
+✓ Production deployment available at: https://pullman-dashboard-xxx.vercel.app
 ```
 
-### Panel web
-
-1. [vercel.com](https://vercel.com) → **Add New Project** → importar repo
-2. Framework Preset: **Other**
-3. Root Directory: `.`
-4. Build Command: *(vacío)*
-5. Output Directory: `.`
-6. **Environment Variables** → agregar todas las del Paso 3
-7. → **Deploy**
-
-### Agregar variables en Vercel (si ya está desplegado)
-
-Settings → Environment Variables → Add → pegar cada una → Save → **Redeploy**
+Si el deploy falla, ver sección "Errores comunes" al final.
 
 ---
 
-## PASO 5 · Deploy en Render
+## PASO 7 — Verificar que funciona
 
-> Render soporta Static Sites con serverless functions via **Web Service** (Node).
-> Para usar las functions de `/api/`, despliega como **Web Service** (no Static Site).
+### 7.1 Probar el login
+1. Abre la URL de Vercel
+2. Ingresa el usuario y contraseña que pusiste en `APP_USER` / `APP_PASS`
+3. Debes ver el dashboard
 
-1. [render.com](https://render.com) → **New → Web Service**
-2. Conectar repo GitHub
-3. Configurar:
-   - **Environment:** `Node`
-   - **Build Command:** `echo "ok"`
-   - **Start Command:** `node -e "require('http').createServer().listen(process.env.PORT)"`
+### 7.2 Verificar que las keys NO están expuestas
+1. En el dashboard, abre DevTools (F12)
+2. Ve a la pestaña **"Sources"** (o "Fuentes")
+3. Abre `script.js`
+4. Busca (Ctrl+F): `Bearer`, `KONNECT`, `QHH79`, `api-key`
+5. ✅ No debe aparecer ninguna de estas cadenas
 
-> ⚠️ **Alternativa recomendada para Render:** usa Vercel para el front+proxy y Render para cualquier backend futuro (BD, workers). Las serverless functions de Vercel son más simples para este caso.
-
-Si igualmente quieres Render puro, necesitas un servidor Express mínimo. Avisanos y lo agregamos.
-
----
-
-## PASO 6 · Verificar que las keys no están expuestas
-
-Abre el sitio desplegado → DevTools (F12) → Sources → `script.js`
-
-Busca: `KONNECT`, `Bearer`, `QHH79`, `api-key`
-
-✅ No debe aparecer ninguna de estas cadenas.
-
-Verifica también: DevTools → Network → cualquier request → Headers
-
-✅ `authorization` y `x-api-key` NO deben aparecer en requests del navegador.
+### 7.3 Verificar el proxy
+1. Ve a la pestaña **"Network"** en DevTools
+2. Haz click en "Cargar" en el dashboard
+3. Observa los requests — deben ir a `/api/proxy?path=...`
+4. Click en cualquier request → Headers
+5. ✅ NO debe aparecer `authorization: Bearer ...` ni `x-api-key` en los request headers del navegador
 
 ---
 
-## PASO 7 · Rotar credenciales
+## PASO 8 — Dominio personalizado (opcional)
 
-Si sospechas que algún token se filtró:
-
-1. Generar nuevo `APP_SECRET` (Paso 1) → actualizar en Vercel → Redeploy
-   - Esto invalida TODAS las sesiones activas inmediatamente
-2. Revocar el Bearer token de Konnect en su panel
-3. Actualizar `KONNECT_BEARER_TOKEN` en Vercel → Redeploy
+En Vercel → tu proyecto → **"Settings"** → **"Domains"**:
+1. Agregar tu dominio (ej: `pagos.pullmanbus.cl`)
+2. Seguir las instrucciones para configurar DNS
+3. Actualizar la variable `ALLOWED_ORIGINS` con el nuevo dominio
 
 ---
 
-## Uso del dashboard
+## Errores comunes y soluciones
 
-| Quién       | Acción                                                    |
-|-------------|-----------------------------------------------------------|
-| Equipo      | Inicia sesión con usuario/contraseña                      |
-| Sistema     | JWT de sesión válido por 8 horas (se renueva al hacer login) |
-| Contable    | Carga datos, ve servicios por empresario                  |
-| Cliente     | Aprueba → `approveEmpresario('ENT-XXXXX')` en consola (por ahora) |
-| Contable    | Botón "Depositar" se habilita → confirma → estado: Pagado |
+### ❌ "Build failed" en Vercel
+**Causa:** El `vercel.json` tiene algún error de sintaxis.  
+**Solución:** Verifica que el archivo no fue modificado. Debe tener exactamente las keys: `version`, `name`, `functions`, `rewrites`, `headers`.
+
+### ❌ "Server misconfigured" al hacer login
+**Causa:** Las variables de entorno no se configuraron correctamente.  
+**Solución:**  
+1. Vercel → proyecto → Settings → Environment Variables
+2. Verifica que existen `APP_USER`, `APP_PASS`, `APP_SECRET`
+3. Después de modificar variables: **Deployments → el último → "Redeploy"**
+
+### ❌ "Credenciales incorrectas" aunque son correctas
+**Causa:** Espacios o caracteres extra al copiar/pegar el valor.  
+**Solución:** En Vercel → Environment Variables → edita cada variable y asegúrate de no tener espacios al inicio o final.
+
+### ❌ "Sesión inválida" inmediatamente después de login
+**Causa:** `APP_SECRET` tiene espacios o fue truncado al copiarlo.  
+**Solución:** Regenerar el APP_SECRET (Paso 2) y actualizar en Vercel → Redeploy.
+
+### ❌ Los datos no cargan (rueda giratoria infinita)
+**Causa:** `KONNECT_BEARER_TOKEN` expiró.  
+**Solución:** Obtener un nuevo token de Konnect Pro y actualizar la variable en Vercel → Redeploy.
 
 ---
 
-## Próximos pasos
+## Rotar credenciales
 
-- [ ] Endpoint real de aprobación del cliente (reemplazar `window.approveEmpresario`)
-- [ ] Multi-usuario con roles (contable vs. supervisor)
-- [ ] Exportar PDF de liquidación por empresario
-- [ ] Historial de pagos con filtro por período
-- [ ] Notificación por email al depositar
+Si sospechas que algo se filtró:
+
+```bash
+# Generar nuevo APP_SECRET
+node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"
+```
+
+Actualizar en Vercel → Environment Variables → APP_SECRET → Save → Redeploy.  
+Esto invalida **todas las sesiones activas** de inmediato.
