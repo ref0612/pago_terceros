@@ -1,6 +1,6 @@
 {
   "name": "pullman-pago-empresarios",
   "version": "1.0.0",
-  "engines": { "node": "18.x" },
+  "engines": { "node": "22.x" },
   "scripts": { "build": "echo ok" }
 }
