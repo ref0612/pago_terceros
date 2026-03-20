@@ -127,16 +127,19 @@ async function fetchAllEmpresas() {
 
 async function fetchAllServices(baseDate, days) {
   var range    = dateRange(baseDate, days);
-  var fromDate = encodeURIComponent(toDisplay(range.start)); // DD%2FMM%2FYYYY
-  var toDate   = encodeURIComponent(toDisplay(range.end));
+  var fromDate = toDisplay(range.start); // DD/MM/YYYY — sin encodeURIComponent, proxyFetch ya codifica el path completo
+  var toDate   = toDisplay(range.end);
   var pageSize = 50;
   var offset   = 0;
   var all      = [];
 
   while (true) {
     var pageLimit = offset + '-' + (offset + pageSize - 1);
+    // date_range=N es obligatorio para activar el modo rango en la API de Konnect.
+    // Sin él, from_date/to_date son ignorados. N debe ser >= días del rango.
     var path = '/api/v2/reports/render_report/' + REPORT_ID +
       '?page_limit=' + pageLimit +
+      '&date_range=' + (days + 1) +
       '&from_date='  + fromDate +
       '&to_date='    + toDate +
       '&date_wise=1' +
