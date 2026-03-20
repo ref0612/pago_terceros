@@ -36,24 +36,43 @@ function verifyJWT(token, secret) {
   } catch { return null; }
 }
 
-/* ─── Vercel KV helpers ───────────────────────────────────── */
+/* ─── KV helpers (Upstash Redis REST API) ─────────────────── */
+// Soporta variables de Upstash: UPSTASH_REDIS_REST_URL / UPSTASH_REDIS_REST_TOKEN
+// O variables legacy Vercel KV: KV_REST_API_URL / KV_REST_API_TOKEN
+function getKVConfig() {
+  const url   = process.env.UPSTASH_REDIS_REST_URL   || process.env.KV_REST_API_URL   || '';
+  const token = process.env.UPSTASH_REDIS_REST_TOKEN || process.env.KV_REST_API_TOKEN || '';
+  return { url, token };
+}
+
 async function kvGet() {
-  const url   = process.env.KV_REST_API_URL + '/get/' + KV_KEY;
-  const token = process.env.KV_REST_API_TOKEN;
-  const res   = await fetch(url, { headers: { Authorization: 'Bearer ' + token } });
-  const json  = await res.json();
+  const { url, token } = getKVConfig();
+  // Upstash REST: GET /get/{key}
+  const res  = await fetch(url + '/get/' + KV_KEY, {
+    headers: { Authorization: 'Bearer ' + token },
+  });
+  const json = await res.json();
   if (!json.result) return {};
   try { return JSON.parse(json.result); } catch { return {}; }
 }
 
 async function kvSet(data) {
-  const url   = process.env.KV_REST_API_URL + '/set/' + KV_KEY;
-  const token = process.env.KV_REST_API_TOKEN;
-  await fetch(url, {
+  const { url, token } = getKVConfig();
+  // Upstash REST: POST /set/{key}/{value}
+  // El valor va en la URL codificado, o como body según el método
+  // Usamos el endpoint de comandos de Upstash: POST / con body ["SET", key, value]
+  const res = await fetch(url, {
     method:  'POST',
-    headers: { Authorization: 'Bearer ' + token, 'Content-Type': 'application/json' },
-    body:    JSON.stringify({ value: JSON.stringify(data) }),
+    headers: {
+      Authorization:  'Bearer ' + token,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify(['SET', KV_KEY, JSON.stringify(data)]),
   });
+  if (!res.ok) {
+    const text = await res.text();
+    throw new Error('KV write failed: ' + text);
+  }
 }
 
 /* ─── Body parser ─────────────────────────────────────────── */
@@ -85,9 +104,10 @@ module.exports = async function handler(req, res) {
   const payload = verifyJWT(token, SECRET);
   if (!payload) return res.status(401).json({ ok:false, error:'Sesión inválida o expirada' });
 
-  // Verificar KV disponible
-  if (!process.env.KV_REST_API_URL || !process.env.KV_REST_API_TOKEN) {
-    return res.status(500).json({ ok:false, error:'KV no configurado. Ver README.' });
+  // Verificar KV disponible (Upstash o Vercel KV)
+  const kvConf = getKVConfig();
+  if (!kvConf.url || !kvConf.token) {
+    return res.status(500).json({ ok:false, error:'KV no configurado. Conecta Upstash en Vercel Storage.' });
   }
 
   /* GET — devolver todas las aprobaciones */
