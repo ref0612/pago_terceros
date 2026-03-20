@@ -135,8 +135,11 @@ async function fetchAllServices(baseDate, days) {
 
   while (true) {
     var pageLimit = offset + '-' + (offset + pageSize - 1);
+    // date_range=N es obligatorio para activar el modo rango en la API de Konnect.
+    // Sin él, from_date/to_date son ignorados. N debe ser >= días del rango.
     var path = '/api/v2/reports/render_report/' + REPORT_ID +
       '?page_limit=' + pageLimit +
+      '&date_range=' + (days + 1) +
       '&from_date='  + fromDate +
       '&to_date='    + toDate +
       '&date_wise=1' +
