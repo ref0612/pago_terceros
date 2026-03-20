@@ -240,7 +240,27 @@ function showApp() {
   $('header-role').textContent     = state.role === 'supervisor' ? 'Supervisor' : 'Contable';
   $('header-role').className       = 'header-role-badge ' + (state.role === 'supervisor' ? 'role-supervisor' : 'role-contable');
 
+  // Resetear DOM a estado limpio — evita que datos del render anterior persistan
+  resetAppState();
+}
+
+function resetAppState() {
+  hide('summary-bar');
+  hide('main-content');
+  hide('state-loading');
+  hide('state-error');
   show('state-empty');
+
+  // Limpiar resumen
+  $('s-produccion').textContent = '$0';
+  $('s-comision').textContent   = '$0';
+  $('s-neto').textContent       = '$0';
+  $('s-count').textContent      = '0';
+  $('s-services').textContent   = '0';
+  $('s-period').textContent     = '—';
+
+  // Limpiar lista de cards
+  $('empresarios-list').innerHTML = '';
 }
 
 async function doLogin() {
@@ -656,6 +676,8 @@ $('login-btn').addEventListener('click', doLogin);
 $('btn-logout').addEventListener('click', function() {
   clearSession();
   state.empresarios=[]; state.services={}; state.approvals={};
+  state.expanded = new Set();
+  resetAppState();
   showLogin();
 });
 
