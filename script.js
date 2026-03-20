@@ -127,8 +127,8 @@ async function fetchAllEmpresas() {
 
 async function fetchAllServices(baseDate, days) {
   var range    = dateRange(baseDate, days);
-  var fromDate = encodeURIComponent(toDisplay(range.start)); // DD%2FMM%2FYYYY
-  var toDate   = encodeURIComponent(toDisplay(range.end));
+  var fromDate = toDisplay(range.start); // DD/MM/YYYY — sin encodeURIComponent, proxyFetch ya codifica el path completo
+  var toDate   = toDisplay(range.end);
   var pageSize = 50;
   var offset   = 0;
   var all      = [];
