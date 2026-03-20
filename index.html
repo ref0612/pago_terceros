@@ -114,6 +114,11 @@
         <div class="summary-label">SERVICIOS</div>
         <div class="summary-value" id="s-services">0</div>
       </div>
+      <div class="summary-divider"></div>
+      <div class="summary-card">
+        <div class="summary-label">PERÍODO</div>
+        <div class="summary-value period-range" id="s-period">—</div>
+      </div>
     </section>
 
     <!-- ───── ESTADO / LOADER ───── -->
@@ -139,13 +144,19 @@
     <!-- ───── LISTA EMPRESARIOS ───── -->
     <main id="main-content" hidden>
       <div class="toolbar">
-        <input type="search" id="search-input" class="search-input" placeholder="Buscar empresario…" />
+        <input type="search" id="search-input" class="search-input"
+               placeholder="Buscar por nombre, código o RUT…" />
         <div class="filter-group">
           <button class="filter-pill active" data-filter="all">Todos</button>
-          <button class="filter-pill" data-filter="pending">Pendiente aprobación</button>
+          <button class="filter-pill" data-filter="pending">Pendiente</button>
           <button class="filter-pill" data-filter="approved">Aprobado</button>
           <button class="filter-pill" data-filter="paid">Pagado</button>
         </div>
+        <label class="toggle-empty">
+          <input type="checkbox" id="hide-empty" />
+          <span class="toggle-track"></span>
+          <span class="toggle-label">Ocultar sin viajes</span>
+        </label>
       </div>
       <div id="empresarios-list"></div>
     </main>
