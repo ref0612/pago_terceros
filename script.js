@@ -18,8 +18,8 @@ const COL = {
 /* ─── STATE ──────────────────────────────────────────────── */
 const state = {
   sessionToken: '',
-  days:         3,
-  baseDate:     todayStr(),
+  dateFrom:     todayStr(),
+  dateTo:       todayStr(),
   empresarios:  [],
   services:     {},
   payments:     {},
@@ -32,15 +32,6 @@ const state = {
 /* ─── HELPERS ────────────────────────────────────────────── */
 function todayStr() {
   return new Date().toISOString().slice(0, 10);
-}
-
-// base=2026-03-19, days=3 → {start:'2026-03-17', end:'2026-03-19'}
-function dateRange(baseDate, days) {
-  const end   = new Date(baseDate + 'T00:00:00');
-  const start = new Date(end);
-  start.setDate(end.getDate() - (days - 1));
-  const fmt = d => d.toISOString().slice(0, 10);
-  return { start: fmt(start), end: fmt(end) };
 }
 
 // YYYY-MM-DD → DD/MM/YYYY
@@ -125,21 +116,23 @@ async function fetchAllEmpresas() {
   return all.filter(function(u){ return u.owner_code && u.owner_code.startsWith('ENT-'); });
 }
 
-async function fetchAllServices(baseDate, days) {
-  var range    = dateRange(baseDate, days);
-  var fromDate = toDisplay(range.start); // DD/MM/YYYY — sin encodeURIComponent, proxyFetch ya codifica el path completo
-  var toDate   = toDisplay(range.end);
+async function fetchAllServices(dateFrom, dateTo) {
+  var fromDate = toDisplay(dateFrom); // DD/MM/YYYY
+  var toDate   = toDisplay(dateTo);
+
+  // Calcular días del rango para date_range (obligatorio en Konnect)
+  var msDay   = 86400000;
+  var diffDays = Math.round((new Date(dateTo) - new Date(dateFrom)) / msDay) + 2;
+
   var pageSize = 50;
   var offset   = 0;
   var all      = [];
 
   while (true) {
     var pageLimit = offset + '-' + (offset + pageSize - 1);
-    // date_range=N es obligatorio para activar el modo rango en la API de Konnect.
-    // Sin él, from_date/to_date son ignorados. N debe ser >= días del rango.
     var path = '/api/v2/reports/render_report/' + REPORT_ID +
       '?page_limit=' + pageLimit +
-      '&date_range=' + (days + 1) +
+      '&date_range=' + diffDays +
       '&from_date='  + fromDate +
       '&to_date='    + toDate +
       '&date_wise=1' +
@@ -149,10 +142,8 @@ async function fetchAllServices(baseDate, days) {
     var rows = data.data_body || [];
     all = all.concat(rows);
 
-    // Menos de pageSize = ultima pagina
     if (rows.length < pageSize) break;
     offset += pageSize;
-    // Techo de seguridad: 1000 registros max
     if (offset >= 1000) break;
   }
 
@@ -174,7 +165,8 @@ function showLogin() {
 function showApp() {
   hide('login-screen');
   show('app');
-  $('base-date').value = state.baseDate;
+  $('date-from').value = state.dateFrom;
+  $('date-to').value   = state.dateTo;
   show('state-empty');
 }
 
@@ -248,8 +240,7 @@ function computeGlobalSummary() {
   $('s-neto').textContent       = formatCLP(totalNeto);
   $('s-count').textContent      = empresas.length;
   $('s-services').textContent   = totalSvc;
-  var range = dateRange(state.baseDate, state.days);
-  $('s-period').textContent = toDisplay(range.start) + ' → ' + toDisplay(range.end);
+  $('s-period').textContent = toDisplay(state.dateFrom) + ' → ' + toDisplay(state.dateTo);
 }
 
 /* ─── FILTRADO ───────────────────────────────────────────── */
@@ -440,9 +431,16 @@ function loadPayments() {
 
 /* ─── LOAD DATA ──────────────────────────────────────────── */
 async function loadData() {
-  state.baseDate = $('base-date').value || todayStr();
-  var range = dateRange(state.baseDate, state.days);
-  setLoading('Cargando ' + state.days + 'd: ' + toDisplay(range.start) + ' → ' + toDisplay(range.end) + '…');
+  state.dateFrom = $('date-from').value || todayStr();
+  state.dateTo   = $('date-to').value   || todayStr();
+
+  // Validar que desde <= hasta
+  if (state.dateFrom > state.dateTo) {
+    toast('⚠ La fecha DESDE no puede ser mayor que HASTA');
+    return;
+  }
+
+  setLoading('Cargando ' + toDisplay(state.dateFrom) + ' → ' + toDisplay(state.dateTo) + '…');
 
   try {
     $('loading-msg').textContent = 'Obteniendo empresarios…';
@@ -458,8 +456,8 @@ async function loadData() {
       };
     });
 
-    $('loading-msg').textContent = 'Cargando servicios ' + toDisplay(range.start) + ' → ' + toDisplay(range.end) + '…';
-    var allRows = await fetchAllServices(state.baseDate, state.days);
+    $('loading-msg').textContent = 'Cargando servicios ' + toDisplay(state.dateFrom) + ' → ' + toDisplay(state.dateTo) + '…';
+    var allRows = await fetchAllServices(state.dateFrom, state.dateTo);
 
     state.services = {};
     var nameMap = {};
@@ -508,12 +506,11 @@ $('btn-logout').addEventListener('click', function() {
 
 $('btn-load').addEventListener('click', loadData);
 
-document.querySelectorAll('.pill').forEach(function(btn) {
-  btn.addEventListener('click', function() {
-    document.querySelectorAll('.pill').forEach(function(b){ b.classList.remove('active'); });
-    btn.classList.add('active');
-    state.days = parseInt(btn.dataset.days, 10);
-  });
+$('date-from').addEventListener('change', function() {
+  if ($('date-to').value && $('date-to').value < $('date-from').value) {
+    $('date-to').value = $('date-from').value;
+  }
+  $('date-to').min = $('date-from').value;
 });
 
 document.querySelectorAll('.filter-pill').forEach(function(btn) {

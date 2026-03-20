@@ -59,21 +59,16 @@
       </div>
 
       <div class="header-controls">
-        <!-- Período -->
+        <!-- Fecha desde -->
         <div class="control-group">
-          <label class="control-label">PERÍODO</label>
-          <div class="period-pills">
-            <button class="pill" data-days="1">1d</button>
-            <button class="pill active" data-days="3">3d</button>
-            <button class="pill" data-days="5">5d</button>
-            <button class="pill" data-days="10">10d</button>
-          </div>
+          <label class="control-label">DESDE</label>
+          <input type="date" id="date-from" class="date-input" />
         </div>
 
-        <!-- Fecha base -->
+        <!-- Fecha hasta -->
         <div class="control-group">
-          <label class="control-label">FECHA BASE</label>
-          <input type="date" id="base-date" class="date-input" />
+          <label class="control-label">HASTA</label>
+          <input type="date" id="date-to" class="date-input" />
         </div>
 
         <button id="btn-load" class="btn-primary">

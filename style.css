@@ -151,31 +151,6 @@ body {
   font-weight: 600;
 }
 
-/* Period pills */
-.period-pills { display: flex; gap: 3px; }
-
-.pill {
-  padding: 4px 11px;
-  border: 1px solid var(--border2);
-  border-radius: var(--radius);
-  background: var(--bg3);
-  color: var(--text2);
-  font-family: var(--sans);
-  font-size: 12px;
-  font-weight: 500;
-  cursor: pointer;
-  transition: all .15s;
-}
-
-.pill:hover { border-color: var(--accent); color: var(--accent); }
-
-.pill.active {
-  background: var(--accent);
-  border-color: var(--accent);
-  color: #fff;
-  font-weight: 600;
-}
-
 /* Inputs */
 .date-input, .token-input {
   height: 32px;
