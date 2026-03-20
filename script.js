@@ -81,6 +81,72 @@ function toastError(msg) {
   setTimeout(function(){ el.remove(); }, 4000);
 }
 
+/* ─── MODAL ──────────────────────────────────────────────── */
+// showModal({ icon, iconClass, title, detail, inputLabel, inputPlaceholder,
+//             confirmText, confirmClass, onConfirm, danger })
+function showModal(opts) {
+  var overlay = $('confirm-overlay');
+  var modal   = $('confirm-modal');
+  var iconEl  = $('confirm-icon');
+  var titleEl = $('confirm-title');
+  var detailEl= $('confirm-detail');
+  var inputWrap = $('confirm-input-wrap');
+  var inputEl = $('confirm-input');
+  var btnsEl  = $('confirm-btns');
+
+  iconEl.textContent  = opts.icon  || '?';
+  iconEl.className    = 'confirm-icon ' + (opts.iconClass || '');
+  titleEl.textContent = opts.title || '';
+  detailEl.innerHTML  = opts.detail || '';
+
+  modal.className = 'confirm-modal' + (opts.danger ? ' modal-danger' : opts.success ? ' modal-success' : '');
+
+  // Input opcional
+  if (opts.inputLabel) {
+    $('confirm-input-label').textContent = opts.inputLabel;
+    inputEl.placeholder = opts.inputPlaceholder || '';
+    inputEl.value = '';
+    inputWrap.hidden = false;
+    setTimeout(function(){ inputEl.focus(); }, 80);
+  } else {
+    inputWrap.hidden = true;
+    inputEl.value = '';
+  }
+
+  // Botones
+  var confirmBtn = '<button class="confirm-btn-primary ' + (opts.confirmClass || 'btn-green') + '" id="confirm-ok">' + (opts.confirmText || 'Confirmar') + '</button>';
+  var cancelBtn  = '<button class="confirm-btn-secondary" id="confirm-cancel">Cancelar</button>';
+  btnsEl.innerHTML = cancelBtn + confirmBtn;
+
+  overlay.hidden = false;
+
+  $('confirm-ok').onclick = function() {
+    var inputVal = opts.inputLabel ? inputEl.value.trim() : null;
+    overlay.hidden = true;
+    opts.onConfirm(inputVal);
+  };
+  $('confirm-cancel').onclick = function() { overlay.hidden = true; };
+
+  // Enter en input confirma
+  inputEl.onkeydown = function(e) {
+    if (e.key === 'Enter') $('confirm-ok').click();
+    if (e.key === 'Escape') $('confirm-cancel').click();
+  };
+
+  // Click fuera cierra
+  overlay.onclick = function(e) {
+    if (e.target === overlay) overlay.hidden = true;
+  };
+}
+
+function showDetailModal(html) {
+  $('detail-content').innerHTML = html;
+  $('detail-overlay').hidden = false;
+  $('detail-overlay').onclick = function(e) {
+    if (e.target === $('detail-overlay')) $('detail-overlay').hidden = true;
+  };
+}
+
 /* ─── SESSION ────────────────────────────────────────────── */
 function saveSession(token, role, username) {
   state.sessionToken = token;
@@ -339,9 +405,11 @@ function computeGlobalSummary() {
 /* ─── ESTADO PAGO ────────────────────────────────────────── */
 // Estado final = approval (del servidor) + paid (localStorage)
 function getPaymentStatus(code) {
-  if (state.payments[code] === 'paid') return 'paid';
+  var p = state.payments[code];
+  // Soporta formato legacy ('paid') y nuevo formato (objeto con .status)
+  if (p === 'paid' || (p && p.status === 'paid')) return 'paid';
   var ap = state.approvals[code];
-  if (ap) return ap.status; // 'approved' | 'rejected' | 'pending'
+  if (ap) return ap.status;
   return 'pending';
 }
 
@@ -413,10 +481,20 @@ function renderCards() {
     // Construir acciones según rol
     var actionsHtml = '';
 
+    if (status === 'paid') {
+      // Badge pagado clickeable — muestra detalle del depósito en ambos roles
+      var pdata = state.payments[emp.ownerCode];
+      var hasDetail = pdata && typeof pdata === 'object';
+      badgeLabel = hasDetail ? '✓ Pagado ↗' : '✓ Pagado';
+      var badgeExtra = hasDetail ? ' badge-paid-clickable" data-paid-code="'+emp.ownerCode : '';
+      // Reescribir badgeClass/badgeLabel para incluir el atributo
+      badgeClass = 'badge-paid' + (hasDetail ? ' badge-paid-clickable' : '');
+    }
+
     if (state.role === 'supervisor') {
       // SUPERVISOR: puede aprobar o rechazar (si no está pagado)
       if (status === 'paid') {
-        actionsHtml = '<div class="action-paid">✓ Pagado</div>';
+        actionsHtml = '<div class="action-paid">✓ Depositado</div>';
       } else if (status === 'approved') {
         actionsHtml =
           '<div class="approval-info">Aprobado por ' + (ap && ap.by ? ap.by : '—') + '</div>' +
@@ -462,7 +540,7 @@ function renderCards() {
           '<div class="stat"><div class="stat-label">Servicios</div><div class="stat-value count">'+stats.rows+'</div></div>' +
         '</div>' +
         '<div class="emp-status">' +
-          '<div class="status-badge '+badgeClass+'">'+badgeLabel+'</div>' +
+          '<div class="status-badge '+badgeClass+'" '+(status==='paid' && state.payments[emp.ownerCode] && typeof state.payments[emp.ownerCode]==='object' ? 'data-paid-code="'+emp.ownerCode+'"' : '')+'>'+badgeLabel+'</div>' +
           '<div class="emp-actions">'+actionsHtml+'</div>' +
         '</div>' +
         '<div class="emp-chevron">▼</div>' +
@@ -505,6 +583,15 @@ function renderCards() {
       btnDeposit.addEventListener('click', function(e) {
         e.stopPropagation();
         handleDeposit(emp.ownerCode);
+      });
+    }
+
+    // Badge Pagado — mostrar detalle del comprobante
+    var paidBadge = card.querySelector('.badge-paid-clickable');
+    if (paidBadge) {
+      paidBadge.addEventListener('click', function(e) {
+        e.stopPropagation();
+        showPaymentDetail(emp.ownerCode);
       });
     }
 
@@ -557,43 +644,113 @@ function renderMiniTable(emp) {
 
 /* ─── ACCIONES ───────────────────────────────────────────── */
 async function handleApprove(code) {
-  var emp  = state.empresarios.find(function(e){ return e.ownerCode===code; });
-  var name = emp.firstName+' '+emp.lastName;
+  var emp   = state.empresarios.find(function(e){ return e.ownerCode===code; });
+  var name  = emp.firstName+' '+emp.lastName;
   var stats = empStats(emp);
-  if (!confirm('¿Aprobar pago a '+name+'?\n\nMonto a pagar: '+formatCLP(stats.neto))) return;
-  try {
-    await postApproval(code, 'approved');
-    state.approvals[code] = { status:'approved', by: state.username, at: new Date().toISOString() };
-    renderCards();
-    toast('✓ Pago de '+name+' aprobado');
-  } catch(err) {
-    toastError('Error al aprobar: '+err.message);
-  }
+  showModal({
+    icon: '✓', iconClass: 'icon-approve',
+    title: 'Aprobar pago',
+    detail: 'Estás aprobando el pago a <strong>'+name+'</strong>' +
+            '<span class="amount">'+formatCLP(stats.neto)+'</span>' +
+            'El contable podrá proceder con el depósito.',
+    confirmText: 'Sí, aprobar',
+    confirmClass: 'btn-green',
+    onConfirm: async function() {
+      try {
+        await postApproval(code, 'approved');
+        state.approvals[code] = { status:'approved', by: state.username, at: new Date().toISOString() };
+        renderCards();
+        toast('✓ Pago de '+name+' aprobado');
+      } catch(err) {
+        toastError('Error al aprobar: '+err.message);
+      }
+    }
+  });
 }
 
 async function handleReject(code) {
   var emp  = state.empresarios.find(function(e){ return e.ownerCode===code; });
   var name = emp.firstName+' '+emp.lastName;
-  if (!confirm('¿Rechazar pago a '+name+'?')) return;
-  try {
-    await postApproval(code, 'rejected');
-    state.approvals[code] = { status:'rejected', by: state.username, at: new Date().toISOString() };
-    renderCards();
-    toast('Pago de '+name+' rechazado');
-  } catch(err) {
-    toastError('Error al rechazar: '+err.message);
-  }
+  showModal({
+    icon: '✕', iconClass: 'icon-reject',
+    title: 'Rechazar pago',
+    detail: '¿Estás seguro de rechazar el pago a <strong>'+name+'</strong>?<br><br>El contable no podrá depositar hasta que se apruebe nuevamente.',
+    confirmText: 'Sí, rechazar',
+    confirmClass: 'btn-red',
+    danger: true,
+    onConfirm: async function() {
+      try {
+        await postApproval(code, 'rejected');
+        state.approvals[code] = { status:'rejected', by: state.username, at: new Date().toISOString() };
+        renderCards();
+        toast('Pago de '+name+' rechazado');
+      } catch(err) {
+        toastError('Error al rechazar: '+err.message);
+      }
+    }
+  });
 }
 
 function handleDeposit(code) {
   var emp   = state.empresarios.find(function(e){ return e.ownerCode===code; });
   var stats = empStats(emp);
   var name  = emp.firstName+' '+emp.lastName;
-  if (!confirm('¿Confirmar depósito a '+name+'?\n\nMonto: '+formatCLP(stats.neto))) return;
-  state.payments[code] = 'paid';
-  savePayments();
-  renderCards();
-  toast('✓ Pago a '+name+' marcado como depositado');
+  var ap    = state.approvals[code];
+  showModal({
+    icon: '⬆', iconClass: 'icon-deposit',
+    title: 'Confirmar depósito',
+    detail: 'Depositando a <strong>'+name+'</strong>' +
+            '<span class="amount">'+formatCLP(stats.neto)+'</span>' +
+            (ap && ap.by ? 'Aprobado por: '+ap.by : ''),
+    inputLabel:       'N° DE TRANSFERENCIA / COMPROBANTE',
+    inputPlaceholder: 'Ej: 123456789',
+    confirmText:  'Confirmar depósito',
+    confirmClass: 'btn-blue',
+    onConfirm: function(transferRef) {
+      state.payments[code] = {
+        status:      'paid',
+        transferRef: transferRef || '(sin número)',
+        name:        name,
+        amount:      formatCLP(stats.neto),
+        by:          state.username,
+        at:          new Date().toISOString(),
+        approvedBy:  ap && ap.by ? ap.by : '—',
+      };
+      savePayments();
+      renderCards();
+      toast('✓ Depósito a '+name+' registrado');
+    }
+  });
+}
+
+function showPaymentDetail(code) {
+  var p = state.payments[code];
+  if (!p || typeof p !== 'object') return;
+
+  var atStr = p.at ? new Date(p.at).toLocaleString('es-CL', {
+    day:'2-digit', month:'2-digit', year:'numeric',
+    hour:'2-digit', minute:'2-digit'
+  }) : '—';
+
+  var html =
+    '<div style="text-align:left;width:100%">' +
+    '<table style="width:100%;border-collapse:collapse">' +
+    detailRow('Empresario',   p.name        || '—') +
+    detailRow('Monto',        '<span style="color:var(--green);font-family:var(--mono);font-size:18px;font-weight:700">' + (p.amount||'$0') + '</span>') +
+    detailRow('N° Transf.',   '<span style="font-family:var(--mono);font-size:15px;color:var(--blue)">' + (p.transferRef||'—') + '</span>') +
+    detailRow('Depositado por', p.by         || '—') +
+    detailRow('Aprobado por', p.approvedBy  || '—') +
+    detailRow('Fecha',        atStr) +
+    '</table></div>';
+
+  showDetailModal(html);
+}
+
+function detailRow(label, value) {
+  return '<tr>' +
+    '<td style="padding:8px 12px 8px 0;color:var(--text3);font-size:11px;font-weight:600;letter-spacing:.5px;text-transform:uppercase;white-space:nowrap;vertical-align:top">' + label + '</td>' +
+    '<td style="padding:8px 0;color:var(--text);font-size:13px">' + value + '</td>' +
+    '</tr>';
 }
 
 /* ─── PERSIST ────────────────────────────────────────────── */

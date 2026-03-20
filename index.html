@@ -161,6 +161,39 @@
 
   </div><!-- /#app -->
 
+  <!-- ═══════════════════════════════════════
+       MODAL DE CONFIRMACIÓN ESTILIZADO
+  ════════════════════════════════════════ -->
+  <div id="confirm-overlay" class="confirm-overlay" hidden>
+    <div class="confirm-modal" id="confirm-modal">
+      <div class="confirm-icon" id="confirm-icon"></div>
+      <div class="confirm-title"  id="confirm-title"></div>
+      <div class="confirm-detail" id="confirm-detail"></div>
+
+      <!-- Input opcional (número de transferencia) -->
+      <div id="confirm-input-wrap" class="confirm-input-wrap" hidden>
+        <label class="form-label" id="confirm-input-label">NÚMERO DE TRANSFERENCIA</label>
+        <input type="text" id="confirm-input" class="form-input"
+               placeholder="Ej: 123456789" autocomplete="off" />
+        <div class="confirm-input-hint">Este número quedará registrado como comprobante.</div>
+      </div>
+
+      <div class="confirm-btns" id="confirm-btns"></div>
+    </div>
+  </div>
+
+  <!-- MODAL DETALLE PAGO -->
+  <div id="detail-overlay" class="confirm-overlay" hidden>
+    <div class="confirm-modal">
+      <div class="confirm-icon">✓</div>
+      <div class="confirm-title">Pago depositado</div>
+      <div class="confirm-detail" id="detail-content"></div>
+      <div class="confirm-btns">
+        <button class="confirm-btn-secondary" onclick="document.getElementById('detail-overlay').hidden=true">Cerrar</button>
+      </div>
+    </div>
+  </div>
+
   <script src="script.js"></script>
 </body>
 </html>
