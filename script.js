@@ -127,17 +127,34 @@ async function fetchAllEmpresas() {
 
 async function fetchAllServices(baseDate, days) {
   var range    = dateRange(baseDate, days);
-  var startApi = toDisplay(range.start);
-  var endApi   = toDisplay(range.end);
-  var path = '/api/v2/reports/render_report/' + REPORT_ID +
-    '?page_limit=0-200' +
-    '&date_range=' + days +
-    '&date_wise=1' +
-    '&start_date=' + encodeURIComponent(startApi) +
-    '&end_date='   + encodeURIComponent(endApi) +
-    '&user=&status=&owner_id=&locale=es';
-  var data = await proxyFetch(path);
-  return data.data_body || [];
+  var fromDate = encodeURIComponent(toDisplay(range.start)); // DD%2FMM%2FYYYY
+  var toDate   = encodeURIComponent(toDisplay(range.end));
+  var pageSize = 50;
+  var offset   = 0;
+  var all      = [];
+
+  while (true) {
+    var pageLimit = offset + '-' + (offset + pageSize - 1);
+    var path = '/api/v2/reports/render_report/' + REPORT_ID +
+      '?page_limit=' + pageLimit +
+      '&date_range=' + days +
+      '&from_date='  + fromDate +
+      '&to_date='    + toDate +
+      '&date_wise=1' +
+      '&user=&status=&owner_id=&locale=es';
+
+    var data = await proxyFetch(path);
+    var rows = data.data_body || [];
+    all = all.concat(rows);
+
+    // Menos de pageSize = ultima pagina
+    if (rows.length < pageSize) break;
+    offset += pageSize;
+    // Techo de seguridad: 1000 registros max
+    if (offset >= 1000) break;
+  }
+
+  return all;
 }
 
 /* ─── DOM ────────────────────────────────────────────────── */
