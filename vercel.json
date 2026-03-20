@@ -1,15 +1,5 @@
 {
   "version": 2,
-  "name": "pullman-pago-empresarios",
-  "functions": {
-    "api/auth.js":  { "runtime": "nodejs18.x", "maxDuration": 10 },
-    "api/proxy.js": { "runtime": "nodejs18.x", "maxDuration": 30 }
-  },
-  "rewrites": [
-    { "source": "/api/auth",  "destination": "/api/auth.js"  },
-    { "source": "/api/proxy", "destination": "/api/proxy.js" },
-    { "source": "/(.*)",      "destination": "/$1"           }
-  ],
   "headers": [
     {
       "source": "/(.*)",
@@ -23,16 +13,8 @@
     {
       "source": "/api/(.*)",
       "headers": [
-        { "key": "Cache-Control", "value": "no-store, no-cache, must-revalidate" }
+        { "key": "Cache-Control", "value": "no-store" }
       ]
-    },
-    {
-      "source": "/style.css",
-      "headers": [{ "key": "Cache-Control", "value": "public, max-age=31536000, immutable" }]
-    },
-    {
-      "source": "/script.js",
-      "headers": [{ "key": "Cache-Control", "value": "public, max-age=31536000, immutable" }]
     }
   ]
 }
