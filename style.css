@@ -827,3 +827,117 @@ body {
   #empresarios-list { padding: 12px 12px 40px; }
   .toolbar { padding: 10px 12px; }
 }
+
+/* ─── ROL BADGE EN HEADER ────────────────────────────────── */
+.header-user {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 2px;
+  flex-shrink: 0;
+}
+
+.header-username {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.header-role-badge {
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: .5px;
+  text-transform: uppercase;
+  padding: 2px 8px;
+  border-radius: var(--radius);
+}
+
+.role-supervisor {
+  background: rgba(52,152,219,.15);
+  color: var(--blue);
+  border: 1px solid rgba(52,152,219,.25);
+}
+
+.role-contable {
+  background: rgba(232,99,42,.12);
+  color: var(--accent);
+  border: 1px solid rgba(232,99,42,.2);
+}
+
+/* ─── ACCIONES DE APROBACIÓN ─────────────────────────────── */
+.emp-actions {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 5px;
+  margin-top: 4px;
+}
+
+.btn-approve {
+  padding: 5px 14px;
+  border: 1px solid var(--green);
+  border-radius: var(--radius);
+  background: var(--green-bg);
+  color: var(--green);
+  font-family: var(--sans);
+  font-weight: 600;
+  font-size: 11px;
+  cursor: pointer;
+  transition: all .15s;
+  white-space: nowrap;
+  text-transform: uppercase;
+  letter-spacing: .3px;
+}
+.btn-approve:hover { background: var(--green); color: #fff; }
+
+.btn-reject {
+  padding: 5px 14px;
+  border: 1px solid var(--red);
+  border-radius: var(--radius);
+  background: var(--red-bg);
+  color: var(--red);
+  font-family: var(--sans);
+  font-weight: 600;
+  font-size: 11px;
+  cursor: pointer;
+  transition: all .15s;
+  white-space: nowrap;
+  text-transform: uppercase;
+  letter-spacing: .3px;
+}
+.btn-reject:hover { background: var(--red); color: #fff; }
+
+.approval-info {
+  font-size: 10px;
+  color: var(--green);
+  font-style: italic;
+  text-align: right;
+}
+
+.rejection-info {
+  font-size: 10px;
+  color: var(--red);
+  font-style: italic;
+  text-align: right;
+}
+
+.action-paid {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--blue);
+  text-transform: uppercase;
+  letter-spacing: .3px;
+}
+
+/* ─── BADGE RECHAZADO ────────────────────────────────────── */
+.badge-rejected {
+  background: var(--red-bg);
+  color: var(--red);
+  border: 1px solid rgba(231,76,60,.2);
+}
+
+/* ─── TOAST ERROR ────────────────────────────────────────── */
+.toast-error {
+  border-left-color: var(--red);
+  color: var(--red);
+}

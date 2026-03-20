@@ -1,6 +1,6 @@
 /* ══════════════════════════════════════════════════════════════
    PAGO EMPRESARIOS · PULLMAN BUS
-   script.js — sin keys en front, proxy seguro
+   Roles: supervisor (aprueba) | contable (deposita)
    ══════════════════════════════════════════════════════════════ */
 
 const REPORT_ID = 1532;
@@ -18,11 +18,14 @@ const COL = {
 /* ─── STATE ──────────────────────────────────────────────── */
 const state = {
   sessionToken: '',
+  role:         '',       // 'supervisor' | 'contable'
+  username:     '',
   dateFrom:     todayStr(),
   dateTo:       todayStr(),
   empresarios:  [],
   services:     {},
-  payments:     {},
+  approvals:    {},       // { 'ENT-XXXXX': { status, by, at } }
+  payments:     {},       // localStorage: { 'ENT-XXXXX': 'paid' }
   filter:       'all',
   search:       '',
   hideEmpty:    false,
@@ -31,16 +34,17 @@ const state = {
 
 /* ─── HELPERS ────────────────────────────────────────────── */
 function todayStr() {
-  return new Date().toISOString().slice(0, 10);
+  return new Date().toISOString().slice(0,10);
 }
 
-// YYYY-MM-DD → DD/MM/YYYY
-function toDisplay(s) { return s.split('-').reverse().join('/'); }
+function toDisplay(s) {
+  return s.split('-').reverse().join('/');
+}
 
 function parseMoney(str) {
   if (typeof str === 'number') return str;
   if (!str || str === '$0') return 0;
-  return parseInt(str.replace(/\$/g,'').replace(/\./g,'').replace(/,/g,''), 10) || 0;
+  return parseInt(str.replace(/\$/g,'').replace(/\./g,'').replace(/,/g,''),10)||0;
 }
 
 function formatCLP(n) {
@@ -49,7 +53,7 @@ function formatCLP(n) {
 }
 
 function initials(first, last) {
-  return ((first||'').trim().charAt(0) + (last||'').trim().charAt(0)).toUpperCase() || '?';
+  return ((first||'').trim().charAt(0)+(last||'').trim().charAt(0)).toUpperCase()||'?';
 }
 
 function svcStateClass(estado) {
@@ -69,29 +73,51 @@ function toast(msg, ms) {
   setTimeout(function(){ el.remove(); }, ms);
 }
 
-/* ─── SESSION ────────────────────────────────────────────── */
-function saveSession(token) {
-  state.sessionToken = token;
-  sessionStorage.setItem('pb_session', token);
+function toastError(msg) {
+  var el = document.createElement('div');
+  el.className = 'toast toast-error';
+  el.textContent = msg;
+  document.body.appendChild(el);
+  setTimeout(function(){ el.remove(); }, 4000);
 }
+
+/* ─── SESSION ────────────────────────────────────────────── */
+function saveSession(token, role, username) {
+  state.sessionToken = token;
+  state.role         = role;
+  state.username     = username;
+  sessionStorage.setItem('pb_session',  token);
+  sessionStorage.setItem('pb_role',     role);
+  sessionStorage.setItem('pb_username', username);
+}
+
 function loadSession() {
   var t = sessionStorage.getItem('pb_session');
-  if (t) state.sessionToken = t;
-  return !!t;
+  var r = sessionStorage.getItem('pb_role');
+  var u = sessionStorage.getItem('pb_username');
+  if (t && r) {
+    state.sessionToken = t;
+    state.role         = r;
+    state.username     = u || '';
+    return true;
+  }
+  return false;
 }
+
 function clearSession() {
   state.sessionToken = '';
+  state.role         = '';
+  state.username     = '';
   sessionStorage.removeItem('pb_session');
+  sessionStorage.removeItem('pb_role');
+  sessionStorage.removeItem('pb_username');
 }
 
 /* ─── API ────────────────────────────────────────────────── */
 async function proxyFetch(konnectPath) {
   var url = '/api/proxy?path=' + encodeURIComponent(konnectPath);
   var res = await fetch(url, {
-    headers: {
-      'Content-Type':    'application/json',
-      'X-Session-Token': state.sessionToken,
-    },
+    headers: { 'Content-Type':'application/json', 'X-Session-Token': state.sessionToken },
   });
   if (res.status === 401) { clearSession(); showLogin(); throw new Error('Sesión expirada.'); }
   if (!res.ok) {
@@ -103,72 +129,92 @@ async function proxyFetch(konnectPath) {
   return json.data;
 }
 
+async function apiFetch(path, opts) {
+  opts = opts || {};
+  var res = await fetch(path, Object.assign({
+    headers: Object.assign({
+      'Content-Type':    'application/json',
+      'X-Session-Token': state.sessionToken,
+    }, opts.headers || {}),
+  }, opts));
+  if (res.status === 401) { clearSession(); showLogin(); throw new Error('Sesión expirada.'); }
+  var json = await res.json();
+  if (!json.ok) throw new Error(json.error || 'Error');
+  return json;
+}
+
 async function fetchAllEmpresas() {
   var page = 1, all = [];
   while (true) {
     var data = await proxyFetch(
-      '/api/v2/users?page=' + page + '&items=25&filter_user_type=1&filter_user_type=3&locale=es'
+      '/api/v2/users?page='+page+'&items=25&filter_user_type=1&filter_user_type=3&locale=es'
     );
-    all = all.concat(data.users || []);
-    if (page >= (data.pages || 1)) break;
+    all = all.concat(data.users||[]);
+    if (page >= (data.pages||1)) break;
     page++;
   }
   return all.filter(function(u){ return u.owner_code && u.owner_code.startsWith('ENT-'); });
 }
 
 async function fetchAllServices(dateFrom, dateTo) {
-  var fromDate = toDisplay(dateFrom); // DD/MM/YYYY
+  var fromDate = toDisplay(dateFrom);
   var toDate   = toDisplay(dateTo);
 
-  // Parámetros confirmados por curl directo a Konnect:
-  // - date_range=4  → activa el modo filtro por fechas (valor fijo, NO representa días)
-  // - page_limit=0-500 → trae hasta 500 registros en un solo request
-  // - from_date/to_date → definen el rango real de fechas
   var path = '/api/v2/reports/render_report/' + REPORT_ID +
-    '?page_limit=0-500' +
-    '&date_range=4' +
+    '?page_limit=0-500&date_range=4' +
     '&from_date=' + fromDate +
     '&to_date='   + toDate +
-    '&date_wise=1' +
-    '&user=&status=&owner_id=&locale=es';
+    '&date_wise=1&user=&status=&owner_id=&locale=es';
 
   var data = await proxyFetch(path);
   var rows = data.data_body || [];
 
-  // Si hay más de 500 registros, paginar
-  var totalRecords = data.total_records_count || data.total_count || rows.length;
-  if (totalRecords > 500) {
+  var total = data.total_records_count || data.total_count || rows.length;
+  if (total > 500) {
     var offset = 500;
-    while (rows.length < totalRecords) {
-      var morePath = '/api/v2/reports/render_report/' + REPORT_ID +
-        '?page_limit=' + offset + '-' + (offset + 499) +
-        '&date_range=4' +
-        '&from_date=' + fromDate +
-        '&to_date='   + toDate +
-        '&date_wise=1' +
-        '&user=&status=&owner_id=&locale=es';
-      var moreData = await proxyFetch(morePath);
-      var moreRows = moreData.data_body || [];
-      if (moreRows.length === 0) break;
+    while (rows.length < total) {
+      var more = await proxyFetch(
+        '/api/v2/reports/render_report/' + REPORT_ID +
+        '?page_limit=' + offset + '-' + (offset+499) + '&date_range=4' +
+        '&from_date=' + fromDate + '&to_date=' + toDate +
+        '&date_wise=1&user=&status=&owner_id=&locale=es'
+      );
+      var moreRows = more.data_body || [];
+      if (!moreRows.length) break;
       rows = rows.concat(moreRows);
       offset += 500;
-      if (offset >= 5000) break; // techo de seguridad
+      if (offset >= 5000) break;
     }
   }
 
-  // Filtrar por seguridad: solo filas dentro del rango de fechas seleccionado
-  // Konnect a veces incluye registros de días adyacentes
-  var fromTs = new Date(dateFrom + 'T00:00:00').getTime();
-  var toTs   = new Date(dateTo   + 'T23:59:59').getTime();
-
+  // Filtro de seguridad: solo fechas dentro del rango
+  var fromTs = new Date(dateFrom+'T00:00:00').getTime();
+  var toTs   = new Date(dateTo  +'T23:59:59').getTime();
   rows = rows.filter(function(r) {
-    var partes = (r[0] || '').split('/'); // DD/MM/YYYY
-    if (partes.length !== 3) return true;
-    var ts = new Date(partes[2] + '-' + partes[1] + '-' + partes[0] + 'T12:00:00').getTime();
+    var p = (r[0]||'').split('/');
+    if (p.length !== 3) return true;
+    var ts = new Date(p[2]+'-'+p[1]+'-'+p[0]+'T12:00:00').getTime();
     return ts >= fromTs && ts <= toTs;
   });
 
   return rows;
+}
+
+async function fetchApprovals() {
+  try {
+    var json = await apiFetch('/api/approvals');
+    state.approvals = json.approvals || {};
+  } catch(e) {
+    console.warn('No se pudieron cargar aprobaciones:', e.message);
+    state.approvals = {};
+  }
+}
+
+async function postApproval(code, action) {
+  return apiFetch('/api/approvals', {
+    method: 'POST',
+    body:   JSON.stringify({ code: code, action: action }),
+  });
 }
 
 /* ─── DOM ────────────────────────────────────────────────── */
@@ -188,6 +234,12 @@ function showApp() {
   show('app');
   $('date-from').value = state.dateFrom;
   $('date-to').value   = state.dateTo;
+
+  // Mostrar nombre y rol en header
+  $('header-username').textContent = state.username;
+  $('header-role').textContent     = state.role === 'supervisor' ? 'Supervisor' : 'Contable';
+  $('header-role').className       = 'header-role-badge ' + (state.role === 'supervisor' ? 'role-supervisor' : 'role-contable');
+
   show('state-empty');
 }
 
@@ -199,13 +251,13 @@ async function doLogin() {
   hide('login-error');
   try {
     var res  = await fetch('/api/auth', {
-      method:  'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body:    JSON.stringify({ username: username, password: password }),
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({ username:username, password:password }),
     });
     var json = await res.json();
-    if (!res.ok || !json.ok) throw new Error(json.error || 'Credenciales incorrectas');
-    saveSession(json.token);
+    if (!res.ok || !json.ok) throw new Error(json.error||'Credenciales incorrectas');
+    saveSession(json.token, json.role, username);
     $('login-pass').value = '';
     showApp();
   } catch(err) {
@@ -248,7 +300,7 @@ function computeGlobalSummary() {
   var totalProd = 0, totalCom = 0, totalNeto = 0, totalSvc = 0;
   var empresas  = getFiltered();
   for (var i = 0; i < empresas.length; i++) {
-    var rows = state.services[empresas[i].ownerCode] || [];
+    var rows = state.services[empresas[i].ownerCode]||[];
     for (var j = 0; j < rows.length; j++) {
       totalProd += parseMoney(rows[j][COL.produccion]);
       totalCom  += parseMoney(rows[j][COL.comision]);
@@ -261,7 +313,16 @@ function computeGlobalSummary() {
   $('s-neto').textContent       = formatCLP(totalNeto);
   $('s-count').textContent      = empresas.length;
   $('s-services').textContent   = totalSvc;
-  $('s-period').textContent = toDisplay(state.dateFrom) + ' → ' + toDisplay(state.dateTo);
+  $('s-period').textContent     = toDisplay(state.dateFrom) + ' → ' + toDisplay(state.dateTo);
+}
+
+/* ─── ESTADO PAGO ────────────────────────────────────────── */
+// Estado final = approval (del servidor) + paid (localStorage)
+function getPaymentStatus(code) {
+  if (state.payments[code] === 'paid') return 'paid';
+  var ap = state.approvals[code];
+  if (ap) return ap.status; // 'approved' | 'rejected' | 'pending'
+  return 'pending';
 }
 
 /* ─── FILTRADO ───────────────────────────────────────────── */
@@ -269,27 +330,27 @@ function getFiltered() {
   var s = state.search.toLowerCase().trim();
   return state.empresarios.filter(function(emp) {
     if (s) {
-      var name = (emp.firstName + ' ' + emp.lastName).toLowerCase();
-      var code = (emp.ownerCode || '').toLowerCase();
-      var rut  = (emp.rut || '').toLowerCase();
+      var name = (emp.firstName+' '+emp.lastName).toLowerCase();
+      var code = (emp.ownerCode||'').toLowerCase();
+      var rut  = (emp.rut||'').toLowerCase();
       if (!name.includes(s) && !code.includes(s) && !rut.includes(s)) return false;
     }
-    if (state.hideEmpty && !(state.services[emp.ownerCode] || []).length) return false;
-    var status = state.payments[emp.ownerCode] || 'pending';
+    if (state.hideEmpty && !(state.services[emp.ownerCode]||[]).length) return false;
+    var status = getPaymentStatus(emp.ownerCode);
     if (state.filter !== 'all' && status !== state.filter) return false;
     return true;
   });
 }
 
 function empStats(emp) {
-  var prod = 0, com = 0, neto = 0;
-  var rows = state.services[emp.ownerCode] || [];
-  for (var i = 0; i < rows.length; i++) {
+  var prod=0, com=0, neto=0;
+  var rows = state.services[emp.ownerCode]||[];
+  for (var i=0;i<rows.length;i++) {
     prod += parseMoney(rows[i][COL.produccion]);
     com  += parseMoney(rows[i][COL.comision]);
     neto += parseMoney(rows[i][COL.totalNeto]);
   }
-  return { rows: rows.length, prod: prod, com: com, neto: neto };
+  return { rows:rows.length, prod:prod, com:com, neto:neto };
 }
 
 /* ─── RENDER CARDS ───────────────────────────────────────── */
@@ -309,53 +370,88 @@ function renderCards() {
   }
 
   empresas.forEach(function(emp, idx) {
-    var stats    = empStats(emp);
-    var rows     = stats.rows;
-    var prod     = stats.prod;
-    var com      = stats.com;
-    var neto     = stats.neto;
-    var status   = state.payments[emp.ownerCode] || 'pending';
+    var stats   = empStats(emp);
+    var status  = getPaymentStatus(emp.ownerCode);
+    var ap      = state.approvals[emp.ownerCode];
+    var hasRows = stats.rows > 0;
     var expanded = state.expanded.has(emp.ownerCode);
-    var hasRows  = rows > 0;
 
-    var badgeClass = { pending:'badge-pending', approved:'badge-approved', paid:'badge-paid' }[status];
-    var badgeLabel = { pending:'Pendiente',     approved:'Aprobado',       paid:'Pagado'    }[status];
-    var depositOk  = status === 'approved';
-    var depositTitle = status === 'pending' ? 'Esperando aprobación del cliente' :
-                       status === 'paid'    ? 'Ya depositado' : '';
+    var badgeClass = {
+      pending:'badge-pending', approved:'badge-approved',
+      rejected:'badge-rejected', paid:'badge-paid'
+    }[status] || 'badge-pending';
+    var badgeLabel = {
+      pending:'Pendiente', approved:'Aprobado',
+      rejected:'Rechazado', paid:'Pagado'
+    }[status] || 'Pendiente';
 
     var card = document.createElement('div');
-    card.className = 'emp-card' + (expanded ? ' expanded' : '') + (!hasRows ? ' no-services' : '');
+    card.className = 'emp-card'+(expanded?' expanded':'')+(!hasRows?' no-services':'');
     card.dataset.code = emp.ownerCode;
-    card.style.animationDelay = (idx * 30) + 'ms';
+    card.style.animationDelay = (idx*30)+'ms';
+
+    // Construir acciones según rol
+    var actionsHtml = '';
+
+    if (state.role === 'supervisor') {
+      // SUPERVISOR: puede aprobar o rechazar (si no está pagado)
+      if (status === 'paid') {
+        actionsHtml = '<div class="action-paid">✓ Pagado</div>';
+      } else if (status === 'approved') {
+        actionsHtml =
+          '<div class="approval-info">Aprobado por ' + (ap && ap.by ? ap.by : '—') + '</div>' +
+          '<button class="btn-reject" data-code="'+emp.ownerCode+'">Rechazar</button>';
+      } else if (status === 'rejected') {
+        actionsHtml =
+          '<div class="rejection-info">Rechazado</div>' +
+          '<button class="btn-approve" data-code="'+emp.ownerCode+'">Aprobar</button>';
+      } else {
+        // pending
+        actionsHtml =
+          '<button class="btn-approve" data-code="'+emp.ownerCode+'">✓ Aprobar</button>' +
+          '<button class="btn-reject"  data-code="'+emp.ownerCode+'">✕ Rechazar</button>';
+      }
+    } else {
+      // CONTABLE: solo puede depositar si está aprobado
+      var depositOk   = status === 'approved';
+      var depositTitle = status === 'pending'  ? 'Esperando aprobación del supervisor'
+                       : status === 'rejected' ? 'Rechazado por el supervisor'
+                       : status === 'paid'     ? 'Ya depositado' : '';
+      actionsHtml = '<button class="btn-deposit" '+(depositOk?'':'disabled')+
+        ' title="'+depositTitle+'" data-code="'+emp.ownerCode+'">Depositar</button>';
+      if (status === 'approved' && ap && ap.by) {
+        actionsHtml += '<div class="approval-info">Aprobado por ' + ap.by + '</div>';
+      }
+    }
 
     card.innerHTML =
       '<div class="emp-header">' +
-        '<div class="emp-avatar">' + initials(emp.firstName, emp.lastName) + '</div>' +
+        '<div class="emp-avatar">'+initials(emp.firstName,emp.lastName)+'</div>' +
         '<div class="emp-info">' +
-          '<div class="emp-name">' + emp.firstName + ' ' + emp.lastName + '</div>' +
+          '<div class="emp-name">'+emp.firstName+' '+emp.lastName+'</div>' +
           '<div class="emp-meta">' +
-            '<span>' + emp.ownerCode + '</span>' +
-            '<span>' + (emp.rut || '—') + '</span>' +
-            '<span class="' + (hasRows ? 'meta-count-active' : '') + '">' + rows + ' servicio' + (rows !== 1 ? 's' : '') + '</span>' +
+            '<span>'+emp.ownerCode+'</span>' +
+            '<span>'+(emp.rut||'—')+'</span>' +
+            '<span class="'+(hasRows?'meta-count-active':'')+'">'+stats.rows+' servicio'+(stats.rows!==1?'s':'')+'</span>' +
           '</div>' +
         '</div>' +
         '<div class="emp-stats">' +
-          '<div class="stat"><div class="stat-label">Producción</div><div class="stat-value amber">' + formatCLP(prod) + '</div></div>' +
-          '<div class="stat"><div class="stat-label">Comisión</div><div class="stat-value">' + formatCLP(com) + '</div></div>' +
-          '<div class="stat"><div class="stat-label">A Pagar</div><div class="stat-value green">' + formatCLP(neto) + '</div></div>' +
-          '<div class="stat"><div class="stat-label">Servicios</div><div class="stat-value count">' + rows + '</div></div>' +
+          '<div class="stat"><div class="stat-label">Producción</div><div class="stat-value amber">'+formatCLP(stats.prod)+'</div></div>' +
+          '<div class="stat"><div class="stat-label">Comisión</div><div class="stat-value">'+formatCLP(stats.com)+'</div></div>' +
+          '<div class="stat"><div class="stat-label">A Pagar</div><div class="stat-value green">'+formatCLP(stats.neto)+'</div></div>' +
+          '<div class="stat"><div class="stat-label">Servicios</div><div class="stat-value count">'+stats.rows+'</div></div>' +
         '</div>' +
         '<div class="emp-status">' +
-          '<div class="status-badge ' + badgeClass + '">' + badgeLabel + '</div>' +
-          '<button class="btn-deposit" ' + (depositOk ? '' : 'disabled') + ' title="' + depositTitle + '" data-code="' + emp.ownerCode + '">Depositar</button>' +
+          '<div class="status-badge '+badgeClass+'">'+badgeLabel+'</div>' +
+          '<div class="emp-actions">'+actionsHtml+'</div>' +
         '</div>' +
         '<div class="emp-chevron">▼</div>' +
       '</div>' +
-      '<div class="emp-services">' + renderMiniTable(emp) + '</div>';
+      '<div class="emp-services">'+renderMiniTable(emp)+'</div>';
 
+    // Toggle expand
     card.querySelector('.emp-header').addEventListener('click', function(e) {
-      if (e.target.closest('.btn-deposit')) return;
+      if (e.target.closest('.btn-approve,.btn-reject,.btn-deposit')) return;
       if (state.expanded.has(emp.ownerCode)) {
         state.expanded.delete(emp.ownerCode);
         card.classList.remove('expanded');
@@ -365,40 +461,60 @@ function renderCards() {
       }
     });
 
-    card.querySelector('.btn-deposit').addEventListener('click', function(e) {
-      e.stopPropagation();
-      handleDeposit(emp.ownerCode);
-    });
+    // Botón aprobar (supervisor)
+    var btnApprove = card.querySelector('.btn-approve');
+    if (btnApprove) {
+      btnApprove.addEventListener('click', function(e) {
+        e.stopPropagation();
+        handleApprove(emp.ownerCode);
+      });
+    }
+
+    // Botón rechazar (supervisor)
+    var btnReject = card.querySelector('.btn-reject');
+    if (btnReject) {
+      btnReject.addEventListener('click', function(e) {
+        e.stopPropagation();
+        handleReject(emp.ownerCode);
+      });
+    }
+
+    // Botón depositar (contable)
+    var btnDeposit = card.querySelector('.btn-deposit');
+    if (btnDeposit) {
+      btnDeposit.addEventListener('click', function(e) {
+        e.stopPropagation();
+        handleDeposit(emp.ownerCode);
+      });
+    }
 
     list.appendChild(card);
   });
 }
 
 function renderMiniTable(emp) {
-  var rows = state.services[emp.ownerCode] || [];
-  if (!rows.length) {
-    return '<table class="services-mini-table"><tbody>' +
-      '<tr><td colspan="10" class="empty-row">Sin servicios en el período seleccionado</td></tr>' +
-      '</tbody></table>';
-  }
+  var rows = state.services[emp.ownerCode]||[];
+  if (!rows.length) return '<table class="services-mini-table"><tbody>' +
+    '<tr><td colspan="10" class="empty-row">Sin servicios en el período seleccionado</td></tr>' +
+    '</tbody></table>';
 
-  var tProd = 0, tCom = 0, tNeto = 0;
+  var tProd=0, tCom=0, tNeto=0;
   var trs = rows.map(function(r) {
-    var prod = parseMoney(r[COL.produccion]);
-    var com  = parseMoney(r[COL.comision]);
-    var neto = parseMoney(r[COL.totalNeto]);
-    tProd += prod; tCom += com; tNeto += neto;
+    var prod=parseMoney(r[COL.produccion]);
+    var com =parseMoney(r[COL.comision]);
+    var neto=parseMoney(r[COL.totalNeto]);
+    tProd+=prod; tCom+=com; tNeto+=neto;
     return '<tr>' +
-      '<td class="td-mono">'   + r[COL.fecha]    + '</td>' +
-      '<td class="td-mono">'   + r[COL.hora]     + '</td>' +
-      '<td class="td-route">'  + r[COL.origen]   + ' → ' + r[COL.destino] + '</td>' +
-      '<td class="td-service">'+ r[COL.servicio] + '</td>' +
-      '<td class="td-mono">'   + r[COL.bus]      + ' · ' + r[COL.patente] + '</td>' +
-      '<td><span class="svc-state ' + svcStateClass(r[COL.estado]) + '">' + r[COL.estado] + '</span></td>' +
-      '<td class="td-amount num">' + r[COL.asientosSuc] + '</td>' +
-      '<td class="td-amount num">' + r[COL.produccion]  + '</td>' +
-      '<td class="td-amount num">' + r[COL.comision]    + '</td>' +
-      '<td class="td-neto">'       + r[COL.totalNeto]   + '</td>' +
+      '<td class="td-mono">'+r[COL.fecha]+'</td>' +
+      '<td class="td-mono">'+r[COL.hora]+'</td>' +
+      '<td class="td-route">'+r[COL.origen]+' → '+r[COL.destino]+'</td>' +
+      '<td class="td-service">'+r[COL.servicio]+'</td>' +
+      '<td class="td-mono">'+r[COL.bus]+' · '+r[COL.patente]+'</td>' +
+      '<td><span class="svc-state '+svcStateClass(r[COL.estado])+'">'+r[COL.estado]+'</span></td>' +
+      '<td class="td-amount num">'+r[COL.asientosSuc]+'</td>' +
+      '<td class="td-amount num">'+r[COL.produccion]+'</td>' +
+      '<td class="td-amount num">'+r[COL.comision]+'</td>' +
+      '<td class="td-neto">'+r[COL.totalNeto]+'</td>' +
       '</tr>';
   }).join('');
 
@@ -409,45 +525,66 @@ function renderMiniTable(emp) {
       '<th class="num">Asientos</th><th class="num">Producción</th>' +
       '<th class="num">Comisión</th><th class="num">Total Neto</th>' +
     '</tr></thead>' +
-    '<tbody>' + trs +
+    '<tbody>'+trs+
       '<tr class="subtotal-row">' +
         '<td colspan="7" style="text-align:right;color:var(--text3)">TOTALES</td>' +
-        '<td class="td-amount num">' + formatCLP(tProd) + '</td>' +
-        '<td class="td-amount num">' + formatCLP(tCom)  + '</td>' +
-        '<td class="td-neto">'       + formatCLP(tNeto) + '</td>' +
+        '<td class="td-amount num">'+formatCLP(tProd)+'</td>' +
+        '<td class="td-amount num">'+formatCLP(tCom)+'</td>' +
+        '<td class="td-neto">'+formatCLP(tNeto)+'</td>' +
       '</tr>' +
     '</tbody></table>';
 }
 
-/* ─── DEPOSIT ────────────────────────────────────────────── */
-function handleDeposit(code) {
-  var emp = state.empresarios.find(function(e){ return e.ownerCode === code; });
+/* ─── ACCIONES ───────────────────────────────────────────── */
+async function handleApprove(code) {
+  var emp  = state.empresarios.find(function(e){ return e.ownerCode===code; });
+  var name = emp.firstName+' '+emp.lastName;
   var stats = empStats(emp);
-  if (!confirm('¿Confirmar depósito a ' + emp.firstName + ' ' + emp.lastName + '?\n\nMonto: ' + formatCLP(stats.neto))) return;
+  if (!confirm('¿Aprobar pago a '+name+'?\n\nMonto a pagar: '+formatCLP(stats.neto))) return;
+  try {
+    await postApproval(code, 'approved');
+    state.approvals[code] = { status:'approved', by: state.username, at: new Date().toISOString() };
+    renderCards();
+    toast('✓ Pago de '+name+' aprobado');
+  } catch(err) {
+    toastError('Error al aprobar: '+err.message);
+  }
+}
+
+async function handleReject(code) {
+  var emp  = state.empresarios.find(function(e){ return e.ownerCode===code; });
+  var name = emp.firstName+' '+emp.lastName;
+  if (!confirm('¿Rechazar pago a '+name+'?')) return;
+  try {
+    await postApproval(code, 'rejected');
+    state.approvals[code] = { status:'rejected', by: state.username, at: new Date().toISOString() };
+    renderCards();
+    toast('Pago de '+name+' rechazado');
+  } catch(err) {
+    toastError('Error al rechazar: '+err.message);
+  }
+}
+
+function handleDeposit(code) {
+  var emp   = state.empresarios.find(function(e){ return e.ownerCode===code; });
+  var stats = empStats(emp);
+  var name  = emp.firstName+' '+emp.lastName;
+  if (!confirm('¿Confirmar depósito a '+name+'?\n\nMonto: '+formatCLP(stats.neto))) return;
   state.payments[code] = 'paid';
   savePayments();
   renderCards();
-  toast('✓ Pago a ' + emp.firstName + ' ' + emp.lastName + ' marcado como depositado');
+  toast('✓ Pago a '+name+' marcado como depositado');
 }
-
-window.approveEmpresario = function(code) {
-  if ((state.payments[code] || 'pending') === 'pending') {
-    state.payments[code] = 'approved';
-    savePayments();
-    renderCards();
-    toast('✓ ' + code + ' aprobado — Depositar habilitado');
-  }
-};
 
 /* ─── PERSIST ────────────────────────────────────────────── */
 function savePayments() {
-  try { localStorage.setItem('pb_payments', JSON.stringify(state.payments)); } catch(e) {}
+  try { localStorage.setItem('pb_payments', JSON.stringify(state.payments)); } catch(e){}
 }
 function loadPayments() {
   try {
     var r = localStorage.getItem('pb_payments');
     if (r) state.payments = JSON.parse(r);
-  } catch(e) {}
+  } catch(e){}
 }
 
 /* ─── LOAD DATA ──────────────────────────────────────────── */
@@ -455,56 +592,54 @@ async function loadData() {
   state.dateFrom = $('date-from').value || todayStr();
   state.dateTo   = $('date-to').value   || todayStr();
 
-  // Validar que desde <= hasta
   if (state.dateFrom > state.dateTo) {
     toast('⚠ La fecha DESDE no puede ser mayor que HASTA');
     return;
   }
 
-  setLoading('Cargando ' + toDisplay(state.dateFrom) + ' → ' + toDisplay(state.dateTo) + '…');
+  setLoading('Cargando '+toDisplay(state.dateFrom)+' → '+toDisplay(state.dateTo)+'…');
 
   try {
     $('loading-msg').textContent = 'Obteniendo empresarios…';
     var rawEmps = await fetchAllEmpresas();
     state.empresarios = rawEmps.map(function(u) {
-      return {
-        id:        u.id,
-        login:     u.login,
-        firstName: u.first_name  || '',
-        lastName:  u.last_name   || '',
-        ownerCode: u.owner_code  || '',
-        rut:       u.rut_number  || '',
-      };
+      return { id:u.id, login:u.login,
+        firstName:u.first_name||'', lastName:u.last_name||'',
+        ownerCode:u.owner_code||'',  rut:u.rut_number||'' };
     });
 
-    $('loading-msg').textContent = 'Cargando servicios ' + toDisplay(state.dateFrom) + ' → ' + toDisplay(state.dateTo) + '…';
+    $('loading-msg').textContent = 'Cargando aprobaciones…';
+    await fetchApprovals();
+
+    $('loading-msg').textContent = 'Cargando servicios '+toDisplay(state.dateFrom)+' → '+toDisplay(state.dateTo)+'…';
     var allRows = await fetchAllServices(state.dateFrom, state.dateTo);
 
+    // Agrupar por Razón Social
     state.services = {};
     var nameMap = {};
     state.empresarios.forEach(function(emp) {
-      nameMap[(emp.firstName + ' ' + emp.lastName).trim().toLowerCase()] = emp.ownerCode;
+      nameMap[(emp.firstName+' '+emp.lastName).trim().toLowerCase()] = emp.ownerCode;
     });
 
     allRows.forEach(function(row) {
-      var razon = (row[COL.razonSocial] || '').trim().toLowerCase();
+      var razon = (row[COL.razonSocial]||'').trim().toLowerCase();
       var code  = nameMap[razon];
       if (!code) {
         var keys = Object.keys(nameMap);
-        for (var i = 0; i < keys.length; i++) {
-          if (razon.includes(keys[i]) || keys[i].includes(razon)) { code = nameMap[keys[i]]; break; }
+        for (var i=0;i<keys.length;i++) {
+          if (razon.includes(keys[i])||keys[i].includes(razon)) { code=nameMap[keys[i]]; break; }
         }
       }
-      code = code || '__unmatched__';
-      if (!state.services[code]) state.services[code] = [];
+      code = code||'__unmatched__';
+      if (!state.services[code]) state.services[code]=[];
       state.services[code].push(row);
     });
 
     setReady();
     renderCards();
 
-    var withSvc = state.empresarios.filter(function(e){ return (state.services[e.ownerCode]||[]).length > 0; }).length;
-    toast('✓ ' + allRows.length + ' servicios · ' + withSvc + ' empresarios activos');
+    var withSvc = state.empresarios.filter(function(e){ return (state.services[e.ownerCode]||[]).length>0; }).length;
+    toast('✓ '+allRows.length+' servicios · '+withSvc+' empresarios activos');
 
   } catch(err) {
     console.error(err);
@@ -515,13 +650,12 @@ async function loadData() {
 /* ─── EVENTOS ────────────────────────────────────────────── */
 $('login-btn').addEventListener('click', doLogin);
 ['login-user','login-pass'].forEach(function(id) {
-  $(id).addEventListener('keydown', function(e) { if (e.key === 'Enter') doLogin(); });
+  $(id).addEventListener('keydown', function(e){ if(e.key==='Enter') doLogin(); });
 });
 
 $('btn-logout').addEventListener('click', function() {
   clearSession();
-  state.empresarios = [];
-  state.services    = {};
+  state.empresarios=[]; state.services={}; state.approvals={};
   showLogin();
 });
 

@@ -1,3 +1,15 @@
+/**
+ * POST /api/auth
+ * Body: { username, password }
+ * Returns: { ok: true, token, role }
+ *
+ * Soporta múltiples usuarios con roles:
+ *   SUPERVISOR_USER / SUPERVISOR_PASS → role: "supervisor"
+ *   CONTABLE_USER  / CONTABLE_PASS   → role: "contable"
+ *
+ * (APP_USER/APP_PASS legacy → role: "contable" para retrocompatibilidad)
+ */
+
 const crypto = require('crypto');
 
 async function getBody(req) {
@@ -29,8 +41,8 @@ function signJWT(payload, secret) {
 }
 
 function safeCompare(a, b) {
-  const sa = String(a || ''), sb = String(b || '');
-  const n = Math.max(sa.length, sb.length, 1);
+  const sa = String(a||''), sb = String(b||'');
+  const n  = Math.max(sa.length, sb.length, 1);
   const ba = Buffer.alloc(n), bb = Buffer.alloc(n);
   Buffer.from(sa).copy(ba); Buffer.from(sb).copy(bb);
   return crypto.timingSafeEqual(ba, bb) && sa.length === sb.length;
@@ -44,19 +56,37 @@ module.exports = async function handler(req, res) {
   if (req.method !== 'POST')   return res.status(405).json({ ok:false, error:'Method not allowed' });
 
   const { username='', password='' } = await getBody(req);
-  const USER   = process.env.APP_USER   || '';
-  const PASS   = process.env.APP_PASS   || '';
   const SECRET = process.env.APP_SECRET || '';
+  if (!SECRET) return res.status(500).json({ ok:false, error:'Servidor mal configurado' });
 
-  if (!USER || !PASS || !SECRET) {
-    console.error('[auth] Faltan env vars');
-    return res.status(500).json({ ok:false, error:'Servidor mal configurado' });
+  // Tabla de usuarios: [ { user, pass, role } ]
+  const users = [
+    {
+      user: process.env.SUPERVISOR_USER || '',
+      pass: process.env.SUPERVISOR_PASS || '',
+      role: 'supervisor',
+    },
+    {
+      user: process.env.CONTABLE_USER || process.env.APP_USER || '',
+      pass: process.env.CONTABLE_PASS || process.env.APP_PASS || '',
+      role: 'contable',
+    },
+  ];
+
+  let matchedRole = null;
+  for (var i = 0; i < users.length; i++) {
+    const u = users[i];
+    if (u.user && u.pass && safeCompare(username, u.user) && safeCompare(password, u.pass)) {
+      matchedRole = u.role;
+      break;
+    }
   }
 
-  if (!safeCompare(username, USER) || !safeCompare(password, PASS))
+  if (!matchedRole) {
     return res.status(401).json({ ok:false, error:'Credenciales incorrectas' });
+  }
 
-  const now = Math.floor(Date.now()/1000);
-  const token = signJWT({ sub:username, iat:now, exp:now+8*3600 }, SECRET);
-  return res.status(200).json({ ok:true, token });
+  const now   = Math.floor(Date.now()/1000);
+  const token = signJWT({ sub:username, role:matchedRole, iat:now, exp:now+8*3600 }, SECRET);
+  return res.status(200).json({ ok:true, token, role:matchedRole });
 };
