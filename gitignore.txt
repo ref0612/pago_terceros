@@ -1,3 +1,10 @@
+# Secretos — NUNCA subir a git
+.env
+.env.local
+.env.*.local
+*.pem
+*.key
+
 # OS
 .DS_Store
 Thumbs.db
@@ -8,11 +15,9 @@ Thumbs.db
 *.swp
 *.swo
 
-# Env / secrets (nunca subir tokens)
-.env
-.env.local
-.env.*.local
-
 # Logs
 *.log
 npm-debug.log*
+
+# Vercel local
+.vercel/

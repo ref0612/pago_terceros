@@ -1,27 +1,29 @@
 services:
   - type: web
     name: pullman-pago-empresarios
-    env: static
-    buildCommand: echo "No build step required"
-    staticPublishPath: .
-    pullRequestPreviewsEnabled: false
+    env: node
+    plan: free
+    buildCommand: echo "No build step"
+    startCommand: node server.js
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: APP_USER
+        sync: false
+      - key: APP_PASS
+        sync: false
+      - key: APP_SECRET
+        sync: false
+      - key: KONNECT_BEARER_TOKEN
+        sync: false
+      - key: KONNECT_API_KEY
+        sync: false
+      - key: ALLOWED_ORIGINS
+        sync: false
     headers:
       - path: /*
         name: X-Frame-Options
-        value: SAMEORIGIN
+        value: DENY
       - path: /*
         name: X-Content-Type-Options
         value: nosniff
-      - path: /*
-        name: Cache-Control
-        value: public, max-age=0, must-revalidate
-      - path: /style.css
-        name: Cache-Control
-        value: public, max-age=31536000, immutable
-      - path: /script.js
-        name: Cache-Control
-        value: public, max-age=31536000, immutable
-    routes:
-      - type: rewrite
-        source: /*
-        destination: /index.html

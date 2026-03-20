@@ -1,58 +1,38 @@
 /* ══════════════════════════════════════════
    PAGO EMPRESARIOS · PULLMAN BUS
-   script.js
+   script.js — versión segura (sin keys en front)
    ══════════════════════════════════════════ */
 
 // ─── CONFIG ──────────────────────────────────────────────
-const API_BASE   = 'https://api-pullman.konnectpro.cl';
-const API_KEY    = 'QHH79qF2fsWEx98pvNeZpQ';
-const REPORT_ID  = 1532;
+// Sin ninguna key aquí. Todo va por el proxy del servidor.
+const REPORT_ID = 1532;
 
-// Índices de columna en data_body del reporte
 const COL = {
-  fecha:        0,
-  hora:         1,
-  origen:       2,
-  destino:      3,
-  ruta:         4,
-  servicio:     5,
-  estado:       6,
-  bus:          7,
-  patente:      8,
-  totalAsientos:9,
-  rut:          10,
-  razonSocial:  11,
-  asientosSuc:  12,
-  recaudSuc:    13,
-  asientosCam:  14,
-  recaudCam:    15,
-  produccion:   16,
-  comision:     17,
-  totalNeto:    18,
+  fecha:        0,  hora:      1,  origen:    2,  destino:   3,
+  ruta:         4,  servicio:  5,  estado:    6,  bus:       7,
+  patente:      8,  totalAsientos: 9,
+  rut:         10,  razonSocial: 11,
+  asientosSuc: 12,  recaudSuc:   13,
+  asientosCam: 14,  recaudCam:   15,
+  produccion:  16,  comision:    17,  totalNeto: 18,
 };
 
 // ─── STATE ───────────────────────────────────────────────
 const state = {
-  token:      '',
-  days:       3,
-  baseDate:   today(),
-  empresarios: [],  // { id, login, firstName, lastName, ownerCode, rut }
-  services:   {},   // ownerCode → [row, ...]
-  payments:   {},   // ownerCode → 'pending' | 'approved' | 'paid'
-  filter:     'all',
-  search:     '',
-  expanded:   new Set(),
+  sessionToken: '',          // JWT emitido por /api/auth
+  days:         3,
+  baseDate:     todayStr(),
+  empresarios:  [],
+  services:     {},
+  payments:     {},
+  filter:       'all',
+  search:       '',
+  expanded:     new Set(),
 };
 
 // ─── HELPERS ─────────────────────────────────────────────
-function today() {
+function todayStr() {
   return new Date().toISOString().slice(0, 10);
-}
-
-function subtractDays(dateStr, n) {
-  const d = new Date(dateStr);
-  d.setDate(d.getDate() - n + 1);
-  return d.toISOString().slice(0, 10);
 }
 
 function parseMoney(str) {
@@ -67,9 +47,7 @@ function formatCLP(n) {
 }
 
 function initials(first, last) {
-  const f = (first || '').trim().charAt(0).toUpperCase();
-  const l = (last  || '').trim().charAt(0).toUpperCase();
-  return (f + l) || '?';
+  return ((first || '').trim().charAt(0) + (last || '').trim().charAt(0)).toUpperCase() || '?';
 }
 
 function svcStateClass(estado) {
@@ -80,15 +58,7 @@ function svcStateClass(estado) {
   return 'svc-otro';
 }
 
-function dateRangeParam(baseDate, days) {
-  // API recibe date_range=N donde N = days-ago offset (6 means "last 6 items" style)
-  // Pero también acepta date_wise=1 y filtra by fecha
-  // Calculamos start_date y end_date y enviamos como date_range flexible
-  // En la API observada usan date_range=6 → usamos days directamente
-  return days;
-}
-
-function toast(msg, duration = 2500) {
+function toast(msg, duration = 2800) {
   const el = document.createElement('div');
   el.className = 'toast';
   el.textContent = msg;
@@ -96,84 +66,154 @@ function toast(msg, duration = 2500) {
   setTimeout(() => el.remove(), duration);
 }
 
-// ─── API ─────────────────────────────────────────────────
-async function apiFetch(path, opts = {}) {
-  const url = API_BASE + path;
-  const headers = {
-    'accept':          'application/json',
-    'accept-language': 'es-ES,es;q=0.9',
-    'authorization':   `Bearer ${state.token}`,
-    'cache-control':   'no-store',
-    'category_type':   '1',
-    'x-api-key':       API_KEY,
-    'origin':          'https://pullman.konnectpro.cl',
-    'referer':         'https://pullman.konnectpro.cl/',
-    ...opts.headers,
-  };
-  const res = await fetch(url, { ...opts, headers });
-  if (!res.ok) throw new Error(`HTTP ${res.status}: ${res.statusText}`);
+// ─── SESSION ─────────────────────────────────────────────
+function saveSession(token) {
+  state.sessionToken = token;
+  // sessionStorage: se borra al cerrar la pestaña
+  sessionStorage.setItem('pb_session', token);
+}
+
+function loadSession() {
+  const t = sessionStorage.getItem('pb_session');
+  if (t) state.sessionToken = t;
+  return !!t;
+}
+
+function clearSession() {
+  state.sessionToken = '';
+  sessionStorage.removeItem('pb_session');
+}
+
+// ─── API CALLS (todo pasa por /api/proxy) ────────────────
+async function proxyFetch(konnectPath) {
+  const url = `/api/proxy?path=${encodeURIComponent(konnectPath)}`;
+  const res = await fetch(url, {
+    headers: {
+      'Content-Type':    'application/json',
+      'X-Session-Token': state.sessionToken,   // ← JWT de sesión, NO el Bearer de Konnect
+    },
+  });
+
+  if (res.status === 401) {
+    clearSession();
+    showLogin();
+    throw new Error('Sesión expirada. Por favor inicia sesión nuevamente.');
+  }
+
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err.error || `HTTP ${res.status}`);
+  }
+
   const json = await res.json();
   if (!json.success) throw new Error(json.message || 'API error');
   return json.data;
 }
 
 async function fetchAllEmpresas() {
-  // Paginamos hasta obtener todos (page size 25)
-  let page = 1;
-  let all  = [];
+  let page = 1, all = [];
   while (true) {
-    const data = await apiFetch(
+    const data = await proxyFetch(
       `/api/v2/users?page=${page}&items=25&filter_user_type=1&filter_user_type=3&locale=es`
     );
-    const users = data.users || [];
-    all = all.concat(users);
+    all = all.concat(data.users || []);
     if (page >= (data.pages || 1)) break;
     page++;
   }
-  // Filtrar solo los que tienen owner_code (son empresarios)
   return all.filter(u => u.owner_code && u.owner_code.startsWith('ENT-'));
 }
 
-async function fetchServicesForOwner(ownerCode, days, baseDate) {
-  const pageRange = `0-100`;
-  const path = `/api/v2/reports/render_report/${REPORT_ID}` +
-    `?page_limit=${pageRange}&date_range=${days}&date_wise=1` +
-    `&user=&status=&owner_id=&locale=es`;
-
-  // El API no filtra por empresario directamente en este endpoint,
-  // filtramos por razonSocial después (col 11 = Razon Social)
-  const data = await apiFetch(path);
+async function fetchAllServices(days) {
+  const data = await proxyFetch(
+    `/api/v2/reports/render_report/${REPORT_ID}?page_limit=0-100&date_range=${days}&date_wise=1&user=&status=&owner_id=&locale=es`
+  );
   return data.data_body || [];
 }
 
-// ─── DOM HELPERS ─────────────────────────────────────────
+// ─── DOM ─────────────────────────────────────────────────
 const $ = id => document.getElementById(id);
 
-function show(id)  { $(id).hidden = false; }
-function hide(id)  { $(id).hidden = true; }
+function show(id) { $(id).hidden = false; }
+function hide(id) { $(id).hidden = true; }
 
+// ─── LOGIN ───────────────────────────────────────────────
+function showLogin() {
+  hide('app');
+  show('login-screen');
+  $('login-user').focus();
+}
+
+function showApp() {
+  hide('login-screen');
+  show('app');
+  $('base-date').value = state.baseDate;
+  show('state-empty');
+}
+
+async function doLogin() {
+  const username = $('login-user').value.trim();
+  const password = $('login-pass').value;
+
+  if (!username || !password) {
+    showLoginError('Ingresa usuario y contraseña.');
+    return;
+  }
+
+  setLoginLoading(true);
+  hide('login-error');
+
+  try {
+    const res = await fetch('/api/auth', {
+      method:  'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body:    JSON.stringify({ username, password }),
+    });
+
+    const json = await res.json();
+
+    if (!res.ok || !json.ok) {
+      throw new Error(json.error || 'Credenciales incorrectas');
+    }
+
+    saveSession(json.token);
+    $('login-pass').value = '';
+    showApp();
+
+  } catch (err) {
+    showLoginError(err.message);
+  } finally {
+    setLoginLoading(false);
+  }
+}
+
+function showLoginError(msg) {
+  const el = $('login-error');
+  el.textContent = msg;
+  el.hidden = false;
+}
+
+function setLoginLoading(on) {
+  $('login-btn').disabled = on;
+  $('login-btn-text').textContent = on ? 'Verificando…' : 'Iniciar sesión';
+  $('login-spinner').hidden = !on;
+}
+
+// ─── STATES ──────────────────────────────────────────────
 function setLoading(msg) {
-  hide('state-empty');
-  hide('state-error');
-  hide('main-content');
-  hide('summary-bar');
+  hide('state-empty'); hide('state-error'); hide('main-content'); hide('summary-bar');
   show('state-loading');
   $('loading-msg').textContent = msg;
 }
 
 function setError(msg) {
-  hide('state-loading');
-  hide('main-content');
+  hide('state-loading'); hide('main-content');
   show('state-error');
   $('error-msg').textContent = msg;
 }
 
 function setReady() {
-  hide('state-loading');
-  hide('state-empty');
-  hide('state-error');
-  show('summary-bar');
-  show('main-content');
+  hide('state-loading'); hide('state-empty'); hide('state-error');
+  show('summary-bar'); show('main-content');
 }
 
 // ─── SUMMARY ─────────────────────────────────────────────
@@ -194,42 +234,34 @@ function computeGlobalSummary() {
   $('s-services').textContent   = totalSvc;
 }
 
-// ─── CARDS RENDER ────────────────────────────────────────
-function getFilteredEmpresas() {
-  const search  = state.search.toLowerCase();
-  const filter  = state.filter;
-
+// ─── CARDS ───────────────────────────────────────────────
+function getFiltered() {
+  const s = state.search.toLowerCase();
   return state.empresarios.filter(emp => {
-    const fullName = `${emp.firstName} ${emp.lastName}`.toLowerCase();
-    const code     = (emp.ownerCode || '').toLowerCase();
-    if (search && !fullName.includes(search) && !code.includes(search)) return false;
-
+    const name = `${emp.firstName} ${emp.lastName}`.toLowerCase();
+    if (s && !name.includes(s) && !(emp.ownerCode || '').toLowerCase().includes(s)) return false;
     const status = state.payments[emp.ownerCode] || 'pending';
-    if (filter === 'pending'  && status !== 'pending')  return false;
-    if (filter === 'approved' && status !== 'approved') return false;
-    if (filter === 'paid'     && status !== 'paid')     return false;
+    if (state.filter !== 'all' && status !== state.filter) return false;
     return true;
   });
 }
 
 function empStats(emp) {
-  const rows = state.services[emp.ownerCode] || [];
   let prod = 0, com = 0, neto = 0;
-  for (const r of rows) {
+  for (const r of (state.services[emp.ownerCode] || [])) {
     prod += parseMoney(r[COL.produccion]);
     com  += parseMoney(r[COL.comision]);
     neto += parseMoney(r[COL.totalNeto]);
   }
-  return { rows: rows.length, prod, com, neto };
+  return { rows: (state.services[emp.ownerCode] || []).length, prod, com, neto };
 }
 
 function renderCards() {
-  const list      = $('empresarios-list');
-  const empresas  = getFilteredEmpresas();
-
+  const list    = $('empresarios-list');
+  const empresas = getFiltered();
   list.innerHTML = '';
 
-  if (empresas.length === 0) {
+  if (!empresas.length) {
     list.innerHTML = `<div class="state-box">
       <div class="state-icon">◎</div>
       <div class="state-title">Sin resultados</div>
@@ -240,23 +272,17 @@ function renderCards() {
 
   empresas.forEach((emp, idx) => {
     const { rows, prod, com, neto } = empStats(emp);
-    const status    = state.payments[emp.ownerCode] || 'pending';
-    const expanded  = state.expanded.has(emp.ownerCode);
+    const status   = state.payments[emp.ownerCode] || 'pending';
+    const expanded = state.expanded.has(emp.ownerCode);
+
+    const badgeClass = { pending:'badge-pending', approved:'badge-approved', paid:'badge-paid' }[status];
+    const badgeLabel = { pending:'Pendiente',     approved:'Aprobado',       paid:'Pagado' }[status];
+    const depositOk  = status === 'approved';
 
     const card = document.createElement('div');
     card.className = `emp-card${expanded ? ' expanded' : ''}`;
     card.dataset.code = emp.ownerCode;
-    card.style.animationDelay = `${idx * 40}ms`;
-
-    const badgeClass = { pending: 'badge-pending', approved: 'badge-approved', paid: 'badge-paid' }[status];
-    const badgeLabel = { pending: 'Pendiente', approved: 'Aprobado', paid: 'Pagado' }[status];
-
-    const depositDisabled = status !== 'approved' ? 'disabled' : '';
-    const depositTitle = status === 'pending'
-      ? 'Esperando aprobación del cliente'
-      : status === 'paid'
-      ? 'Ya fue depositado'
-      : '';
+    card.style.animationDelay = `${idx * 35}ms`;
 
     card.innerHTML = `
       <div class="emp-header">
@@ -289,25 +315,28 @@ function renderCards() {
         </div>
         <div class="emp-status">
           <div class="status-badge ${badgeClass}">${badgeLabel}</div>
-          <button class="btn-deposit" ${depositDisabled} title="${depositTitle}"
+          <button class="btn-deposit" ${depositOk ? '' : 'disabled'}
+            title="${status === 'pending' ? 'Esperando aprobación del cliente' : status === 'paid' ? 'Ya depositado' : ''}"
             data-code="${emp.ownerCode}">
             Depositar
           </button>
         </div>
         <div class="emp-chevron">▼</div>
       </div>
-      <div class="emp-services">
-        ${renderMiniTable(emp)}
-      </div>
+      <div class="emp-services">${renderMiniTable(emp)}</div>
     `;
 
-    // Toggle expand
     card.querySelector('.emp-header').addEventListener('click', e => {
       if (e.target.closest('.btn-deposit')) return;
-      toggleExpand(emp.ownerCode, card);
+      if (state.expanded.has(emp.ownerCode)) {
+        state.expanded.delete(emp.ownerCode);
+        card.classList.remove('expanded');
+      } else {
+        state.expanded.add(emp.ownerCode);
+        card.classList.add('expanded');
+      }
     });
 
-    // Deposit button
     card.querySelector('.btn-deposit').addEventListener('click', e => {
       e.stopPropagation();
       handleDeposit(emp.ownerCode);
@@ -319,30 +348,23 @@ function renderCards() {
 
 function renderMiniTable(emp) {
   const rows = state.services[emp.ownerCode] || [];
+  if (!rows.length) return `<table class="services-mini-table"><tbody>
+    <tr><td colspan="10" class="empty-row">Sin servicios en el período</td></tr>
+  </tbody></table>`;
 
-  if (rows.length === 0) {
-    return `<table class="services-mini-table"><tbody>
-      <tr><td colspan="8" class="empty-row">Sin servicios en el período</td></tr>
-    </tbody></table>`;
-  }
-
-  let totalProd = 0, totalCom = 0, totalNeto = 0;
+  let tProd = 0, tCom = 0, tNeto = 0;
   const trs = rows.map(r => {
-    const prod  = parseMoney(r[COL.produccion]);
-    const com   = parseMoney(r[COL.comision]);
-    const neto  = parseMoney(r[COL.totalNeto]);
-    totalProd += prod;
-    totalCom  += com;
-    totalNeto += neto;
-
-    const stateClass = svcStateClass(r[COL.estado]);
+    const prod = parseMoney(r[COL.produccion]);
+    const com  = parseMoney(r[COL.comision]);
+    const neto = parseMoney(r[COL.totalNeto]);
+    tProd += prod; tCom += com; tNeto += neto;
     return `<tr>
       <td class="td-mono">${r[COL.fecha]}</td>
       <td class="td-mono">${r[COL.hora]}</td>
       <td class="td-route">${r[COL.origen]} → ${r[COL.destino]}</td>
       <td class="td-service">${r[COL.servicio]}</td>
       <td class="td-mono">${r[COL.bus]} · ${r[COL.patente]}</td>
-      <td><span class="svc-state ${stateClass}">${r[COL.estado]}</span></td>
+      <td><span class="svc-state ${svcStateClass(r[COL.estado])}">${r[COL.estado]}</span></td>
       <td class="td-amount num">${r[COL.asientosSuc]}</td>
       <td class="td-amount num">${r[COL.produccion]}</td>
       <td class="td-amount num">${r[COL.comision]}</td>
@@ -351,62 +373,43 @@ function renderMiniTable(emp) {
   }).join('');
 
   return `<table class="services-mini-table">
-    <thead>
-      <tr>
-        <th>Fecha</th><th>Hora</th><th>Ruta</th><th>Servicio</th>
-        <th>Bus · Patente</th><th>Estado</th>
-        <th class="num">Asientos</th><th class="num">Producción</th>
-        <th class="num">Comisión</th><th class="num">Total Neto</th>
-      </tr>
-    </thead>
-    <tbody>
-      ${trs}
+    <thead><tr>
+      <th>Fecha</th><th>Hora</th><th>Ruta</th><th>Servicio</th>
+      <th>Bus · Patente</th><th>Estado</th>
+      <th class="num">Asientos</th><th class="num">Producción</th>
+      <th class="num">Comisión</th><th class="num">Total Neto</th>
+    </tr></thead>
+    <tbody>${trs}
       <tr class="subtotal-row">
         <td colspan="7" style="text-align:right;color:var(--text3)">TOTALES</td>
-        <td class="td-amount num">${formatCLP(totalProd)}</td>
-        <td class="td-amount num">${formatCLP(totalCom)}</td>
-        <td class="td-neto">${formatCLP(totalNeto)}</td>
+        <td class="td-amount num">${formatCLP(tProd)}</td>
+        <td class="td-amount num">${formatCLP(tCom)}</td>
+        <td class="td-neto">${formatCLP(tNeto)}</td>
       </tr>
     </tbody>
   </table>`;
 }
 
-function toggleExpand(code, card) {
-  if (state.expanded.has(code)) {
-    state.expanded.delete(code);
-    card.classList.remove('expanded');
-  } else {
-    state.expanded.add(code);
-    card.classList.add('expanded');
-  }
-}
-
 // ─── DEPOSIT ─────────────────────────────────────────────
 function handleDeposit(code) {
-  const emp    = state.empresarios.find(e => e.ownerCode === code);
+  const emp = state.empresarios.find(e => e.ownerCode === code);
   const { neto } = empStats(emp);
-  const name   = `${emp.firstName} ${emp.lastName}`;
-  const ok     = confirm(
-    `¿Confirmar depósito a ${name}?\n\nMonto: ${formatCLP(neto)}\n\nEsta acción marcará el pago como realizado.`
-  );
-  if (!ok) return;
+  if (!confirm(`¿Confirmar depósito a ${emp.firstName} ${emp.lastName}?\n\nMonto: ${formatCLP(neto)}`)) return;
   state.payments[code] = 'paid';
   savePayments();
   renderCards();
   computeGlobalSummary();
-  toast(`✓ Pago a ${name} marcado como depositado`);
+  toast(`✓ Pago a ${emp.firstName} ${emp.lastName} marcado como depositado`);
 }
 
-// ─── APPROVE (simulate client approval) ──────────────────
-// En producción esto vendría de la API del cliente.
-// Aquí exponemos un método de simulación via consola: window.approveEmpresario('ENT-03041')
+// ─── APPROVE (expuesto para que el equipo de dev lo conecte a su webhook) ──
 window.approveEmpresario = function(code) {
-  if (!state.payments[code] || state.payments[code] === 'pending') {
+  if ((state.payments[code] || 'pending') === 'pending') {
     state.payments[code] = 'approved';
     savePayments();
     renderCards();
     computeGlobalSummary();
-    toast(`✓ Empresario ${code} aprobado — botón Depositar habilitado`);
+    toast(`✓ ${code} aprobado — Depositar habilitado`);
   }
 };
 
@@ -414,66 +417,42 @@ window.approveEmpresario = function(code) {
 function savePayments() {
   try { localStorage.setItem('pb_payments', JSON.stringify(state.payments)); } catch {}
 }
-
 function loadPayments() {
-  try {
-    const raw = localStorage.getItem('pb_payments');
-    if (raw) state.payments = JSON.parse(raw);
-  } catch {}
+  try { const r = localStorage.getItem('pb_payments'); if (r) state.payments = JSON.parse(r); } catch {}
 }
 
 // ─── LOAD DATA ───────────────────────────────────────────
 async function loadData() {
-  state.token    = $('api-token').value.trim();
-  state.baseDate = $('base-date').value || today();
-
-  if (!state.token) {
-    toast('⚠ Ingrese el token de autorización');
-    return;
-  }
-
+  state.baseDate = $('base-date').value || todayStr();
   setLoading('Obteniendo empresarios…');
 
   try {
-    // 1. Traer todos los empresarios
     const rawEmps = await fetchAllEmpresas();
     state.empresarios = rawEmps.map(u => ({
-      id:         u.id,
-      login:      u.login,
-      firstName:  u.first_name  || '',
-      lastName:   u.last_name   || '',
-      ownerCode:  u.owner_code  || '',
-      rut:        u.rut_number  || '',
+      id: u.id, login: u.login,
+      firstName: u.first_name || '', lastName: u.last_name || '',
+      ownerCode: u.owner_code || '', rut: u.rut_number || '',
     }));
 
-    $('loading-msg').textContent = `Cargando servicios del período (${state.days}d)…`;
+    $('loading-msg').textContent = `Cargando servicios (${state.days}d)…`;
+    const allRows = await fetchAllServices(state.days);
 
-    // 2. Traer todos los servicios del período (1 sola llamada, sin filtro por owner)
-    const allRows = await fetchServicesForOwner(null, state.days, state.baseDate);
-
-    // 3. Agrupar servicios por Razon Social (col 11)
-    //    Los empresarios en la respuesta vienen con first_name + last_name
-    //    El reporte tiene col 11 = Razon Social (e.g. "Marcelo Andres Calbucura Alvarado")
+    // Agrupar por Razón Social → ownerCode
     state.services = {};
-
-    // Crear mapa razonSocial → ownerCode
-    const nameToCode = {};
+    const nameMap = {};
     for (const emp of state.empresarios) {
-      const fullName = `${emp.firstName} ${emp.lastName}`.trim().toLowerCase();
-      nameToCode[fullName] = emp.ownerCode;
+      nameMap[`${emp.firstName} ${emp.lastName}`.trim().toLowerCase()] = emp.ownerCode;
     }
 
     for (const row of allRows) {
       const razon = (row[COL.razonSocial] || '').trim().toLowerCase();
-      // buscar coincidencia exacta o parcial
-      let code = nameToCode[razon];
+      let code = nameMap[razon];
       if (!code) {
-        // búsqueda parcial
-        for (const [name, c] of Object.entries(nameToCode)) {
+        for (const [name, c] of Object.entries(nameMap)) {
           if (razon.includes(name) || name.includes(razon)) { code = c; break; }
         }
       }
-      if (!code) code = '__unmatched__';
+      code = code || '__unmatched__';
       if (!state.services[code]) state.services[code] = [];
       state.services[code].push(row);
     }
@@ -484,68 +463,55 @@ async function loadData() {
 
   } catch (err) {
     console.error(err);
-    setError(err.message || 'Error desconocido al cargar datos');
+    setError(err.message);
   }
 }
 
 // ─── EVENTS ──────────────────────────────────────────────
+// Login
+$('login-btn').addEventListener('click', doLogin);
+['login-user', 'login-pass'].forEach(id =>
+  $(id).addEventListener('keydown', e => { if (e.key === 'Enter') doLogin(); })
+);
+
+// Logout
+$('btn-logout').addEventListener('click', () => {
+  clearSession();
+  state.empresarios = []; state.services = {};
+  showLogin();
+});
+
+// Controls
 $('btn-load').addEventListener('click', loadData);
 
-// Period pills
-document.querySelectorAll('.pill').forEach(btn => {
+document.querySelectorAll('.pill').forEach(btn =>
   btn.addEventListener('click', () => {
     document.querySelectorAll('.pill').forEach(b => b.classList.remove('active'));
     btn.classList.add('active');
     state.days = parseInt(btn.dataset.days, 10);
-  });
-});
+  })
+);
 
-// Filter pills
-document.querySelectorAll('.filter-pill').forEach(btn => {
+document.querySelectorAll('.filter-pill').forEach(btn =>
   btn.addEventListener('click', () => {
     document.querySelectorAll('.filter-pill').forEach(b => b.classList.remove('active'));
     btn.classList.add('active');
     state.filter = btn.dataset.filter;
     renderCards();
-  });
-});
+  })
+);
 
-// Search
 $('search-input').addEventListener('input', e => {
   state.search = e.target.value;
   renderCards();
 });
 
-// Modal close
-$('modal-close').addEventListener('click', () => { $('modal-overlay').hidden = true; });
-$('modal-overlay').addEventListener('click', e => {
-  if (e.target === $('modal-overlay')) $('modal-overlay').hidden = true;
-});
-
-// Keyboard ESC
-document.addEventListener('keydown', e => {
-  if (e.key === 'Escape') $('modal-overlay').hidden = true;
-});
-
-// Enter en token input
-$('api-token').addEventListener('keydown', e => {
-  if (e.key === 'Enter') loadData();
-});
-
 // ─── INIT ────────────────────────────────────────────────
 (function init() {
-  // Set today as default
-  $('base-date').value = today();
   loadPayments();
-
-  // Restaurar token desde sessionStorage (por comodidad)
-  const saved = sessionStorage.getItem('pb_token');
-  if (saved) $('api-token').value = saved;
-
-  // Guardar token al cambiar
-  $('api-token').addEventListener('change', () => {
-    sessionStorage.setItem('pb_token', $('api-token').value);
-  });
-
-  show('state-empty');
+  if (loadSession()) {
+    showApp();
+  } else {
+    showLogin();
+  }
 })();
