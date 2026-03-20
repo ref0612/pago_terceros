@@ -1,0 +1,156 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Pago Empresarios · Pullman Bus</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=Syne:wght@600;700;800&family=DM+Sans:wght@300;400;500&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+
+  <!-- ───── HEADER ───── -->
+  <header class="app-header">
+    <div class="header-brand">
+      <div class="brand-mark">PB</div>
+      <div>
+        <div class="brand-name">Pullman Bus</div>
+        <div class="brand-sub">Sistema de Pago a Empresarios</div>
+      </div>
+    </div>
+
+    <div class="header-controls">
+      <!-- Período -->
+      <div class="control-group">
+        <label class="control-label">PERÍODO</label>
+        <div class="period-pills">
+          <button class="pill" data-days="1">1d</button>
+          <button class="pill active" data-days="3">3d</button>
+          <button class="pill" data-days="5">5d</button>
+          <button class="pill" data-days="10">10d</button>
+        </div>
+      </div>
+
+      <!-- Fecha base -->
+      <div class="control-group">
+        <label class="control-label">FECHA BASE</label>
+        <input type="date" id="base-date" class="date-input" />
+      </div>
+
+      <!-- Token -->
+      <div class="control-group">
+        <label class="control-label">TOKEN API</label>
+        <input type="password" id="api-token" class="token-input" placeholder="Bearer …" />
+      </div>
+
+      <button id="btn-load" class="btn-primary">
+        <span class="btn-icon">⟳</span> Cargar
+      </button>
+    </div>
+  </header>
+
+  <!-- ───── RESUMEN GLOBAL ───── -->
+  <section class="summary-bar" id="summary-bar" hidden>
+    <div class="summary-card">
+      <div class="summary-label">PRODUCCIÓN TOTAL</div>
+      <div class="summary-value" id="s-produccion">$0</div>
+    </div>
+    <div class="summary-divider"></div>
+    <div class="summary-card">
+      <div class="summary-label">COMISIÓN (30%)</div>
+      <div class="summary-value accent" id="s-comision">$0</div>
+    </div>
+    <div class="summary-divider"></div>
+    <div class="summary-card">
+      <div class="summary-label">TOTAL A PAGAR</div>
+      <div class="summary-value highlight" id="s-neto">$0</div>
+    </div>
+    <div class="summary-divider"></div>
+    <div class="summary-card">
+      <div class="summary-label">EMPRESARIOS</div>
+      <div class="summary-value" id="s-count">0</div>
+    </div>
+    <div class="summary-divider"></div>
+    <div class="summary-card">
+      <div class="summary-label">SERVICIOS</div>
+      <div class="summary-value" id="s-services">0</div>
+    </div>
+  </section>
+
+  <!-- ───── ESTADO / LOADER ───── -->
+  <div id="state-empty" class="state-box">
+    <div class="state-icon">⬡</div>
+    <div class="state-title">Configure los parámetros</div>
+    <div class="state-desc">Ingrese el token API y seleccione el período para cargar los datos.</div>
+  </div>
+
+  <div id="state-loading" class="state-box" hidden>
+    <div class="loader-ring"></div>
+    <div class="state-title">Cargando datos…</div>
+    <div class="state-desc" id="loading-msg">Obteniendo empresarios</div>
+  </div>
+
+  <div id="state-error" class="state-box" hidden>
+    <div class="state-icon error-icon">✕</div>
+    <div class="state-title">Error al cargar</div>
+    <div class="state-desc" id="error-msg"></div>
+    <button class="btn-secondary" onclick="document.getElementById('btn-load').click()">Reintentar</button>
+  </div>
+
+  <!-- ───── LISTA EMPRESARIOS ───── -->
+  <main id="main-content" hidden>
+    <div class="toolbar">
+      <input type="search" id="search-input" class="search-input" placeholder="Buscar empresario…" />
+      <div class="filter-group">
+        <button class="filter-pill active" data-filter="all">Todos</button>
+        <button class="filter-pill" data-filter="pending">Pendiente aprobación</button>
+        <button class="filter-pill" data-filter="approved">Aprobado</button>
+        <button class="filter-pill" data-filter="paid">Pagado</button>
+      </div>
+    </div>
+
+    <div id="empresarios-list"></div>
+  </main>
+
+  <!-- ───── MODAL DETALLE ───── -->
+  <div id="modal-overlay" class="modal-overlay" hidden>
+    <div class="modal">
+      <div class="modal-header">
+        <div>
+          <div class="modal-title" id="modal-title"></div>
+          <div class="modal-sub" id="modal-sub"></div>
+        </div>
+        <button class="modal-close" id="modal-close">✕</button>
+      </div>
+
+      <div class="modal-summary" id="modal-summary"></div>
+
+      <div class="table-wrapper">
+        <table class="services-table" id="services-table">
+          <thead>
+            <tr>
+              <th>Fecha</th>
+              <th>Hora</th>
+              <th>Ruta</th>
+              <th>Servicio</th>
+              <th>Bus / Patente</th>
+              <th>Estado</th>
+              <th class="num">Asientos</th>
+              <th class="num">Producción</th>
+              <th class="num">Comisión</th>
+              <th class="num">Total Neto</th>
+            </tr>
+          </thead>
+          <tbody id="services-tbody"></tbody>
+        </table>
+      </div>
+
+      <div class="modal-footer" id="modal-footer"></div>
+    </div>
+  </div>
+
+  <script src="script.js"></script>
+</body>
+</html>
