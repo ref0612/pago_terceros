@@ -120,51 +120,55 @@ async function fetchAllServices(dateFrom, dateTo) {
   var fromDate = toDisplay(dateFrom); // DD/MM/YYYY
   var toDate   = toDisplay(dateTo);
 
-  // date_range=1 activa el modo filtro por fechas en Konnect.
-  // NO debe igualar el número de días del rango — from_date/to_date definen el rango real.
-  // Si date_range > rango real, Konnect incluye días extra fuera del rango seleccionado.
-  var diffDays = 1;
+  // Parámetros confirmados por curl directo a Konnect:
+  // - date_range=4  → activa el modo filtro por fechas (valor fijo, NO representa días)
+  // - page_limit=0-500 → trae hasta 500 registros en un solo request
+  // - from_date/to_date → definen el rango real de fechas
+  var path = '/api/v2/reports/render_report/' + REPORT_ID +
+    '?page_limit=0-500' +
+    '&date_range=4' +
+    '&from_date=' + fromDate +
+    '&to_date='   + toDate +
+    '&date_wise=1' +
+    '&user=&status=&owner_id=&locale=es';
 
-  // page_limit funciona como índice de filas: "desde-hasta"
-  // 0-9 = filas 0 a 9, 10-19 = filas 10 a 19, etc.
-  // Usamos bloques de 10 (igual que el curl original de Konnect)
-  var pageSize     = 10;
-  var offset       = 0;
-  var all          = [];
-  var totalRecords = null; // lo obtenemos de la primera respuesta
+  var data = await proxyFetch(path);
+  var rows = data.data_body || [];
 
-  while (true) {
-    var pageLimit = offset + '-' + (offset + pageSize - 1);
-    var path = '/api/v2/reports/render_report/' + REPORT_ID +
-      '?page_limit=' + pageLimit +
-      '&date_range=' + diffDays +
-      '&from_date='  + fromDate +
-      '&to_date='    + toDate +
-      '&date_wise=1' +
-      '&user=&status=&owner_id=&locale=es';
-
-    var data = await proxyFetch(path);
-    var rows = data.data_body || [];
-    all = all.concat(rows);
-
-    // En la primera llamada leemos el total real de registros
-    if (totalRecords === null) {
-      totalRecords = data.total_records_count || data.total_count || rows.length;
+  // Si hay más de 500 registros, paginar
+  var totalRecords = data.total_records_count || data.total_count || rows.length;
+  if (totalRecords > 500) {
+    var offset = 500;
+    while (rows.length < totalRecords) {
+      var morePath = '/api/v2/reports/render_report/' + REPORT_ID +
+        '?page_limit=' + offset + '-' + (offset + 499) +
+        '&date_range=4' +
+        '&from_date=' + fromDate +
+        '&to_date='   + toDate +
+        '&date_wise=1' +
+        '&user=&status=&owner_id=&locale=es';
+      var moreData = await proxyFetch(morePath);
+      var moreRows = moreData.data_body || [];
+      if (moreRows.length === 0) break;
+      rows = rows.concat(moreRows);
+      offset += 500;
+      if (offset >= 5000) break; // techo de seguridad
     }
-
-    // Parar cuando ya tenemos todos los registros
-    if (all.length >= totalRecords) break;
-
-    // Parar si la API no devolvió nada (evitar loop infinito)
-    if (rows.length === 0) break;
-
-    offset += pageSize;
-
-    // Techo de seguridad: máximo 2000 registros
-    if (offset >= 2000) break;
   }
 
-  return all;
+  // Filtrar por seguridad: solo filas dentro del rango de fechas seleccionado
+  // Konnect a veces incluye registros de días adyacentes
+  var fromTs = new Date(dateFrom + 'T00:00:00').getTime();
+  var toTs   = new Date(dateTo   + 'T23:59:59').getTime();
+
+  rows = rows.filter(function(r) {
+    var partes = (r[0] || '').split('/'); // DD/MM/YYYY
+    if (partes.length !== 3) return true;
+    var ts = new Date(partes[2] + '-' + partes[1] + '-' + partes[0] + 'T12:00:00').getTime();
+    return ts >= fromTs && ts <= toTs;
+  });
+
+  return rows;
 }
 
 /* ─── DOM ────────────────────────────────────────────────── */
