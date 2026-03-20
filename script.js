@@ -120,13 +120,17 @@ async function fetchAllServices(dateFrom, dateTo) {
   var fromDate = toDisplay(dateFrom); // DD/MM/YYYY
   var toDate   = toDisplay(dateTo);
 
-  // Calcular días del rango para date_range (obligatorio en Konnect)
-  var msDay   = 86400000;
+  // date_range es obligatorio en Konnect para activar el filtro por fechas
+  var msDay    = 86400000;
   var diffDays = Math.round((new Date(dateTo) - new Date(dateFrom)) / msDay) + 2;
 
-  var pageSize = 50;
-  var offset   = 0;
-  var all      = [];
+  // page_limit funciona como índice de filas: "desde-hasta"
+  // 0-9 = filas 0 a 9, 10-19 = filas 10 a 19, etc.
+  // Usamos bloques de 10 (igual que el curl original de Konnect)
+  var pageSize     = 10;
+  var offset       = 0;
+  var all          = [];
+  var totalRecords = null; // lo obtenemos de la primera respuesta
 
   while (true) {
     var pageLimit = offset + '-' + (offset + pageSize - 1);
@@ -142,9 +146,21 @@ async function fetchAllServices(dateFrom, dateTo) {
     var rows = data.data_body || [];
     all = all.concat(rows);
 
-    if (rows.length < pageSize) break;
+    // En la primera llamada leemos el total real de registros
+    if (totalRecords === null) {
+      totalRecords = data.total_records_count || data.total_count || rows.length;
+    }
+
+    // Parar cuando ya tenemos todos los registros
+    if (all.length >= totalRecords) break;
+
+    // Parar si la API no devolvió nada (evitar loop infinito)
+    if (rows.length === 0) break;
+
     offset += pageSize;
-    if (offset >= 1000) break;
+
+    // Techo de seguridad: máximo 2000 registros
+    if (offset >= 2000) break;
   }
 
   return all;
