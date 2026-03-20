@@ -120,9 +120,10 @@ async function fetchAllServices(dateFrom, dateTo) {
   var fromDate = toDisplay(dateFrom); // DD/MM/YYYY
   var toDate   = toDisplay(dateTo);
 
-  // date_range es obligatorio en Konnect para activar el filtro por fechas
-  var msDay    = 86400000;
-  var diffDays = Math.round((new Date(dateTo) - new Date(dateFrom)) / msDay) + 2;
+  // date_range=1 activa el modo filtro por fechas en Konnect.
+  // NO debe igualar el número de días del rango — from_date/to_date definen el rango real.
+  // Si date_range > rango real, Konnect incluye días extra fuera del rango seleccionado.
+  var diffDays = 1;
 
   // page_limit funciona como índice de filas: "desde-hasta"
   // 0-9 = filas 0 a 9, 10-19 = filas 10 a 19, etc.
