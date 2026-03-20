@@ -137,7 +137,6 @@ async function fetchAllServices(baseDate, days) {
     var pageLimit = offset + '-' + (offset + pageSize - 1);
     var path = '/api/v2/reports/render_report/' + REPORT_ID +
       '?page_limit=' + pageLimit +
-      '&date_range=' + days +
       '&from_date='  + fromDate +
       '&to_date='    + toDate +
       '&date_wise=1' +
