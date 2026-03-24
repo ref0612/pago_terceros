@@ -486,21 +486,17 @@ function renderCards() {
           '</div>'+
         '</div>'+
         '<div class="emp-flow">'+
-          /* Producción */
-          '<div class="flow-block">'+
+          '<div class="flow-block flow-block-prod">'+
             '<div class="flow-label">PRODUCCIÓN</div>'+
             '<div class="flow-value flow-prod">'+formatCLP(totals.prod)+'</div>'+
-            '<div class="flow-sub">'+rows.length+' servicio'+(rows.length!==1?'s':'')+'</div>'+
+            '<div class="flow-sub">'+rows.length+' svc</div>'+
           '</div>'+
-          /* Flecha + deducciones */
           '<div class="flow-arrow">→</div>'+
           '<div class="flow-block flow-deductions">'+
-            '<div class="flow-label">DEDUCCIONES</div>'+
             '<div class="flow-ded-row"><span class="flow-ded-lbl">Comisión</span><span class="flow-ded-val">'+formatCLP(totals.com)+'</span></div>'+
             '<div class="flow-ded-row"><span class="flow-ded-lbl">Gastos</span><span class="flow-ded-val '+(totals.gastos>0?'flow-ded-yellow':'flow-ded-muted')+'">'+(totals.gastos>0?formatCLP(totals.gastos):'—')+'</span></div>'+
             '<div class="flow-ded-row"><span class="flow-ded-lbl">Aramco</span><span class="flow-ded-val '+(empAramcoTotal>0?'flow-ded-red':'flow-ded-muted')+'">'+(empAramcoTotal>0?'−'+formatCLP(empAramcoTotal):'—')+'</span></div>'+
           '</div>'+
-          /* Flecha + Total */
           '<div class="flow-arrow flow-arrow-accent">→</div>'+
           '<div class="flow-block flow-total">'+
             '<div class="flow-label">TOTAL A PAGAR</div>'+

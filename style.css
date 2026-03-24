@@ -1033,100 +1033,132 @@ body {
 .stat-value.stat-aramco { color: var(--red); }
 
 /* ─── FINANCIAL FLOW (card header) ──────────────────────── */
+
+/* Card altura fija para consistencia visual */
+.emp-card { min-height: 72px; }
+.emp-header { min-height: 72px; }
+
 .emp-flow {
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: 0;
   flex-shrink: 0;
+  height: 44px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  overflow: hidden;
+  background: var(--panel);
 }
 
+/* Cada bloque del flujo */
 .flow-block {
   display: flex;
   flex-direction: column;
-  align-items: flex-start;
-  gap: 2px;
-  min-width: 100px;
+  align-items: center;
+  justify-content: center;
+  gap: 1px;
+  padding: 0 16px;
+  height: 100%;
+  white-space: nowrap;
+  border-right: 1px solid var(--border);
 }
+.flow-block:last-child { border-right: none; }
 
 .flow-label {
   font-size: 9px;
   font-weight: 700;
   color: var(--text3);
-  letter-spacing: .7px;
+  letter-spacing: .6px;
   text-transform: uppercase;
 }
 
 .flow-value {
   font-family: var(--mono);
-  font-size: 16px;
+  font-size: 14px;
   font-weight: 700;
-  letter-spacing: -.3px;
+  letter-spacing: -.2px;
 }
 
 .flow-prod { color: var(--yellow); }
 .flow-neto { color: var(--green); }
 
 .flow-sub {
-  font-size: 11px;
+  font-size: 10px;
   color: var(--text3);
 }
 
-/* Deducciones — lista compacta */
-.flow-deductions {
+/* Bloque producción */
+.flow-block-prod {
+  min-width: 120px;
   background: var(--bg);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-md);
-  padding: 7px 12px;
-  gap: 4px;
-  min-width: 140px;
+}
+
+/* Deducciones — 3 filas en 1 bloque */
+.flow-deductions {
+  flex-direction: column;
+  align-items: flex-start;
+  justify-content: center;
+  padding: 0 14px;
+  gap: 2px;
+  min-width: 168px;
+  background: var(--bg);
 }
 
 .flow-ded-row {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  gap: 16px;
+  width: 100%;
+  gap: 12px;
 }
 
 .flow-ded-lbl {
-  font-size: 11px;
+  font-size: 10px;
   color: var(--text3);
   font-weight: 500;
+  width: 56px;
 }
 
 .flow-ded-val {
   font-family: var(--mono);
-  font-size: 12px;
+  font-size: 11px;
   font-weight: 600;
   color: var(--text2);
+  text-align: right;
+  min-width: 72px;
 }
 
-.flow-ded-muted { color: var(--text3) !important; font-weight: 400 !important; }
+.flow-ded-muted  { color: var(--text3) !important; font-weight: 400 !important; }
 .flow-ded-yellow { color: var(--yellow) !important; }
 .flow-ded-red    { color: var(--red) !important; }
 
-/* Total a pagar — destacado */
+/* Total — bloque verde */
 .flow-total {
   background: var(--green-bg);
-  border: 1px solid var(--green-brd);
-  border-radius: var(--radius-md);
-  padding: 7px 14px;
-  align-items: center;
-  min-width: 130px;
+  min-width: 128px;
+  border-right: none;
 }
-
 .flow-total .flow-label { color: var(--green); }
+.flow-total .flow-value { font-size: 15px; }
 
 /* Flecha separadora */
 .flow-arrow {
-  color: var(--text3);
-  font-size: 16px;
+  color: var(--border2);
+  font-size: 14px;
   flex-shrink: 0;
+  padding: 0 2px;
   line-height: 1;
+  background: var(--bg);
+  height: 100%;
+  display: flex;
+  align-items: center;
+  border-right: 1px solid var(--border);
+}
+.flow-arrow-accent {
+  color: var(--green-brd);
+  background: var(--green-bg);
 }
 
-.flow-arrow-accent { color: var(--green); }
-
-@media (max-width: 900px) {
+@media (max-width: 1100px) {
   .emp-flow { display: none; }
 }
