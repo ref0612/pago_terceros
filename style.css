@@ -1020,3 +1020,11 @@ body {
   #empresarios-list { padding:12px 12px 40px; }
   .toolbar { padding:10px 12px; }
 }
+
+/* ─── ARAMCO / GASTOS ────────────────────────────────────── */
+.summary-gastos { color: var(--yellow); }
+.summary-aramco { color: var(--red); }
+
+/* Day stat colors adicionales */
+.day-stat.orange { color: var(--yellow); }
+.day-stat.red    { color: var(--red); }

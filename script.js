@@ -9,6 +9,7 @@ const COL = {
   bus:7, patente:8, totalAsientos:9, rut:10, razonSocial:11,
   asientosSuc:12, recaudSuc:13, asientosCam:14, recaudCam:15,
   produccion:16, comision:17, totalNeto:18,
+  // gastos: null, // ← TODO Konnect: agregar índice cuando esté disponible
 };
 
 /* ─── STATE ──────────────────────────────────────────────── */
@@ -19,6 +20,9 @@ var state = {
   services:    {},  // ownerCode → [rows]
   approvals:   {},  // "ENT-XXXXX__YYYY-MM-DD" → { status, by, at }
   payments:    {},  // localStorage — same key structure
+  // Aramco: cargos por empresario por día
+  // Clave: "ENT-XXXXX__YYYY-MM-DD", valor: monto numérico a descontar
+  aramco:      {},
   filter: 'all', search: '', hideEmpty: false,
   expanded: new Set(),
 };
@@ -59,15 +63,38 @@ function groupByDay(rows) {
   return days;
 }
 
+// Obtener cargo Aramco de un día (0 si no está configurado)
+function getAramcoDay(code, isoDate) {
+  return state.aramco[approvalKey(code, isoDate)] || 0;
+}
+
 // Stats de un array de filas
+// gastos: placeholder en 0 hasta que Konnect lo envíe en data_body
 function calcStats(rows) {
-  var prod=0, com=0, neto=0;
+  var prod=0, com=0, gastos=0, neto=0;
   (rows||[]).forEach(function(r) {
-    prod += parseMoney(r[COL.produccion]);
-    com  += parseMoney(r[COL.comision]);
-    neto += parseMoney(r[COL.totalNeto]);
+    prod   += parseMoney(r[COL.produccion]);
+    com    += parseMoney(r[COL.comision]);
+    // gastos += parseMoney(r[COL.gastos]); // TODO: descomentar cuando Konnect agregue la columna
+    neto   += parseMoney(r[COL.totalNeto]);
   });
-  return { count: (rows||[]).length, prod:prod, com:com, neto:neto };
+  return { count:(rows||[]).length, prod:prod, com:com, gastos:gastos, neto:neto };
+}
+
+// Total final = totalNeto (Konnect, ya incluye gastos) - Aramco
+function calcFinalNeto(netoKonnect, code, isoDate) {
+  return netoKonnect - getAramcoDay(code, isoDate);
+}
+
+// Total final para todos los días de un empresario en el rango
+function calcFinalNetoTotal(code) {
+  var byDay = groupByDay(state.services[code]||[]);
+  var total = 0;
+  Object.keys(byDay).forEach(function(d) {
+    var stats = calcStats(byDay[d]);
+    total += calcFinalNeto(stats.neto, code, d);
+  });
+  return total;
 }
 
 // Estado resumen de un empresario (para badge colapsado)
@@ -282,6 +309,19 @@ async function postApproval(key, action) {
   return apiFetch('/api/approvals',{ method:'POST', body:JSON.stringify({ key:key, action:action }) });
 }
 
+async function fetchAramco() {
+  try {
+    var json = await apiFetch('/api/aramco?from='+state.dateFrom+'&to='+state.dateTo);
+    state.aramco = json.data || {};
+    if (json.source === 'stub') {
+      console.info('[Aramco] Usando datos stub ($0). Configurar ARAMCO_API_URL para datos reales.');
+    }
+  } catch(e) {
+    console.warn('[Aramco] No se pudieron cargar cargos:', e.message);
+    state.aramco = {};
+  }
+}
+
 /* ─── DOM ────────────────────────────────────────────────── */
 var $ = function(id){ return document.getElementById(id); };
 function show(id){ $(id).hidden=false; }
@@ -304,6 +344,7 @@ function resetAppState() {
   hide('summary-bar'); hide('main-content'); hide('state-loading'); hide('state-error');
   show('state-empty');
   ['s-produccion','s-comision','s-neto'].forEach(function(id){ $(id).textContent='$0'; });
+  ['s-gastos','s-aramco'].forEach(function(id){ $(id).textContent='—'; });
   ['s-count','s-services'].forEach(function(id){ $(id).textContent='0'; });
   $('s-period').textContent='—';
   $('empresarios-list').innerHTML='';
@@ -356,18 +397,29 @@ function getFiltered() {
 
 /* ─── SUMMARY ────────────────────────────────────────────── */
 function computeGlobalSummary() {
-  var tp=0,tc=0,tn=0,ts=0;
+  var tp=0, tc=0, tg=0, ta=0, tn=0, ts=0;
   getFiltered().forEach(function(emp) {
-    (state.services[emp.ownerCode]||[]).forEach(function(r) {
-      tp+=parseMoney(r[COL.produccion]); tc+=parseMoney(r[COL.comision]); tn+=parseMoney(r[COL.totalNeto]); ts++;
+    var byDay = groupByDay(state.services[emp.ownerCode]||[]);
+    Object.keys(byDay).forEach(function(isoDate) {
+      var rows  = byDay[isoDate];
+      var stats = calcStats(rows);
+      var aramco = getAramcoDay(emp.ownerCode, isoDate);
+      tp += stats.prod;
+      tc += stats.com;
+      tg += stats.gastos;        // placeholder 0 hasta que llegue de Konnect
+      ta += aramco;
+      tn += calcFinalNeto(stats.neto, emp.ownerCode, isoDate);
+      ts += stats.count;
     });
   });
-  $('s-produccion').textContent=formatCLP(tp);
-  $('s-comision').textContent  =formatCLP(tc);
-  $('s-neto').textContent      =formatCLP(tn);
-  $('s-count').textContent     =getFiltered().length;
-  $('s-services').textContent  =ts;
-  $('s-period').textContent    =toDisplay(state.dateFrom)+' → '+toDisplay(state.dateTo);
+  $('s-produccion').textContent = formatCLP(tp);
+  $('s-comision').textContent   = formatCLP(tc);
+  $('s-gastos').textContent     = tg > 0 ? formatCLP(tg) : '—';
+  $('s-aramco').textContent     = ta > 0 ? formatCLP(ta) : '—';
+  $('s-neto').textContent       = formatCLP(tn);
+  $('s-count').textContent      = getFiltered().length;
+  $('s-services').textContent   = ts;
+  $('s-period').textContent     = toDisplay(state.dateFrom)+' → '+toDisplay(state.dateTo);
 }
 
 /* ─── RENDER CARDS ───────────────────────────────────────── */
@@ -520,13 +572,18 @@ function renderDayBreakdown(emp) {
       }
     }
 
+    var aramcoDay  = getAramcoDay(emp.ownerCode, isoDate);
+    var finalNeto  = calcFinalNeto(stats.neto, emp.ownerCode, isoDate);
+
     html+=
       '<div class="day-section">'+
         '<div class="day-header">'+
           '<div class="day-date">'+toDisplay(isoDate)+'</div>'+
           '<div class="day-stats">'+
             '<span class="day-stat"><span class="day-stat-lbl">Prod.</span> '+formatCLP(stats.prod)+'</span>'+
-            '<span class="day-stat green"><span class="day-stat-lbl">Neto</span> '+formatCLP(stats.neto)+'</span>'+
+            (stats.gastos>0?'<span class="day-stat orange"><span class="day-stat-lbl">Gastos</span> '+formatCLP(stats.gastos)+'</span>':'')+
+            (aramcoDay>0?'<span class="day-stat red"><span class="day-stat-lbl">Aramco</span> −'+formatCLP(aramcoDay)+'</span>':'')+
+            '<span class="day-stat green"><span class="day-stat-lbl">Total</span> '+formatCLP(finalNeto)+'</span>'+
             '<span class="day-stat blue"><span class="day-stat-lbl">Svc</span> '+stats.count+'</span>'+
           '</div>'+
           '<div class="day-badge-wrap">'+
@@ -582,7 +639,8 @@ async function handleApproveDay(code, isoDate) {
     icon:'✓', iconClass:'icon-approve',
     title:'Aprobar pago · '+toDisplay(isoDate),
     detail:'Aprobando pago del <strong>'+toDisplay(isoDate)+'</strong> a <strong>'+emp.firstName+' '+emp.lastName+'</strong>'+
-           '<span class="amount">'+formatCLP(stats.neto)+'</span>',
+           '<span class="amount">'+formatCLP(calcFinalNeto(stats.neto,code,isoDate))+'</span>'+
+           (getAramcoDay(code,isoDate)>0?'<div style="font-size:11px;color:var(--text3);margin-top:2px">Neto Konnect: '+formatCLP(stats.neto)+' − Aramco: '+formatCLP(getAramcoDay(code,isoDate))+'</div>':''),
     confirmText:'Sí, aprobar', confirmClass:'btn-green',
     onConfirm: async function() {
       try {
@@ -624,15 +682,20 @@ function handleDepositDay(code, isoDate) {
     icon:'⬆', iconClass:'icon-deposit',
     title:'Depositar · '+toDisplay(isoDate),
     detail:'Depósito del <strong>'+toDisplay(isoDate)+'</strong> a <strong>'+emp.firstName+' '+emp.lastName+'</strong>'+
-           '<span class="amount">'+formatCLP(stats.neto)+'</span>'+
-           (ap&&ap.by?'Aprobado por: '+ap.by:''),
+           '<span class="amount">'+formatCLP(calcFinalNeto(stats.neto,code,isoDate))+'</span>'+
+           (getAramcoDay(code,isoDate)>0?'<div style="font-size:11px;color:var(--text3);margin-top:2px">Neto Konnect: '+formatCLP(stats.neto)+' − Aramco: '+formatCLP(getAramcoDay(code,isoDate))+'</div>':'')
+           +(ap&&ap.by?'<div style="font-size:12px;color:var(--text2)">Aprobado por: '+ap.by+'</div>':''),
     inputLabel:'N° DE TRANSFERENCIA / COMPROBANTE',
     inputPlaceholder:'Ej: 123456789',
     confirmText:'Confirmar depósito', confirmClass:'btn-blue',
     onConfirm: function(ref) {
       var key=approvalKey(code,isoDate);
+      var finalAmt = calcFinalNeto(stats.neto, code, isoDate);
       state.payments[key]={ status:'paid', transferRef:ref||'(sin número)',
-        name:emp.firstName+' '+emp.lastName, amount:formatCLP(stats.neto),
+        name:emp.firstName+' '+emp.lastName,
+        amount:formatCLP(finalAmt),
+        amountKonnect:formatCLP(stats.neto),
+        amountAramco: formatCLP(getAramcoDay(code,isoDate)),
         date:isoDate, by:state.username, approvedBy:ap&&ap.by?ap.by:'—',
         at:new Date().toISOString() };
       savePayments(); renderCards();
@@ -683,7 +746,9 @@ function calcApprovedNeto(code) {
   var byDay=groupByDay(state.services[code]||[]);
   var total=0;
   Object.keys(byDay).forEach(function(d) {
-    if (getDayStatus(code,d)==='approved') total+=calcStats(byDay[d]).neto;
+    if (getDayStatus(code,d)==='approved') {
+      total += calcFinalNeto(calcStats(byDay[d]).neto, code, d);
+    }
   });
   return total;
 }
@@ -701,7 +766,9 @@ function showPaymentDetail(code, isoDate) {
     '<table style="width:100%;border-collapse:collapse">'+
     detailRow('Empresario', p.name||'—')+
     detailRow('Fecha servicio', toDisplay(p.date||isoDate))+
-    detailRow('Monto','<span style="color:var(--green);font-family:var(--mono);font-size:18px;font-weight:700">'+(p.amount||'$0')+'</span>')+
+    detailRow('Total pagado','<span style="color:var(--green);font-family:var(--mono);font-size:18px;font-weight:700">'+(p.amount||'$0')+'</span>')+
+    (p.amountKonnect&&p.amountKonnect!==p.amount?detailRow('Neto Konnect', p.amountKonnect):'')+
+    (p.amountAramco&&p.amountAramco!=='$0'?detailRow('Descuento Aramco','<span style="color:var(--red)">−'+p.amountAramco+'</span>'):'')+
     detailRow('N° Transferencia','<span style="font-family:var(--mono);font-size:15px;color:var(--blue)">'+(p.transferRef||'—')+'</span>')+
     detailRow('Depositado por', p.by||'—')+
     detailRow('Aprobado por',   p.approvedBy||'—')+
@@ -739,6 +806,9 @@ async function loadData() {
     $('loading-msg').textContent='Cargando aprobaciones…';
     await fetchApprovals();
 
+    $('loading-msg').textContent='Cargando cargos Aramco…';
+    await fetchAramco();
+
     $('loading-msg').textContent='Cargando servicios…';
     var allRows=await fetchAllServices(state.dateFrom,state.dateTo);
 
@@ -770,7 +840,7 @@ $('login-btn').addEventListener('click', doLogin);
 
 $('btn-logout').addEventListener('click', function(){
   clearSession(); state.empresarios=[]; state.services={};
-  state.approvals={}; state.expanded=new Set();
+  state.approvals={}; state.aramco={}; state.expanded=new Set();
   resetAppState(); showLogin();
 });
 
