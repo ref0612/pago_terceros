@@ -485,23 +485,15 @@ function renderCards() {
             '<span class="'+(hasRows?'meta-count-active':'')+'">'+rows.length+' servicio'+(rows.length!==1?'s':'')+'</span>'+
           '</div>'+
         '</div>'+
-        '<div class="emp-flow">'+
-          '<div class="flow-block flow-block-prod">'+
-            '<div class="flow-label">PRODUCCIÓN</div>'+
-            '<div class="flow-value flow-prod">'+formatCLP(totals.prod)+'</div>'+
-            '<div class="flow-sub">'+rows.length+' svc</div>'+
-          '</div>'+
-          '<div class="flow-arrow">→</div>'+
-          '<div class="flow-block flow-deductions">'+
-            '<div class="flow-ded-row"><span class="flow-ded-lbl">Comisión</span><span class="flow-ded-val">'+formatCLP(totals.com)+'</span></div>'+
-            '<div class="flow-ded-row"><span class="flow-ded-lbl">Gastos</span><span class="flow-ded-val '+(totals.gastos>0?'flow-ded-yellow':'flow-ded-muted')+'">'+(totals.gastos>0?formatCLP(totals.gastos):'—')+'</span></div>'+
-            '<div class="flow-ded-row"><span class="flow-ded-lbl">Aramco</span><span class="flow-ded-val '+(empAramcoTotal>0?'flow-ded-red':'flow-ded-muted')+'">'+(empAramcoTotal>0?'−'+formatCLP(empAramcoTotal):'—')+'</span></div>'+
-          '</div>'+
-          '<div class="flow-arrow flow-arrow-accent">→</div>'+
-          '<div class="flow-block flow-total">'+
-            '<div class="flow-label">TOTAL A PAGAR</div>'+
-            '<div class="flow-value flow-neto">'+formatCLP(calcFinalNetoTotal(emp.ownerCode))+'</div>'+
-          '</div>'+
+        '<div class="emp-stats">'+
+          '<div class="stat stat-w1"><div class="stat-label">Producción</div><div class="stat-value amber">'+formatCLP(totals.prod)+'</div></div>'+
+          '<div class="stat-sep"></div>'+
+          '<div class="stat stat-w2"><div class="stat-label">Comisión</div><div class="stat-value">'+formatCLP(totals.com)+'</div></div>'+
+          '<div class="stat stat-w2"><div class="stat-label">Gastos</div><div class="stat-value stat-gastos">'+(totals.gastos>0?formatCLP(totals.gastos):'—')+'</div></div>'+
+          '<div class="stat stat-w2"><div class="stat-label">Aramco</div><div class="stat-value stat-aramco">'+(empAramcoTotal>0?formatCLP(empAramcoTotal):'—')+'</div></div>'+
+          '<div class="stat-sep"></div>'+
+          '<div class="stat stat-w1"><div class="stat-label">Total a Pagar</div><div class="stat-value green">'+formatCLP(calcFinalNetoTotal(emp.ownerCode))+'</div></div>'+
+          '<div class="stat stat-w3"><div class="stat-label">Servicios</div><div class="stat-value count">'+rows.length+'</div></div>'+
         '</div>'+
         '<div class="emp-status">'+
           '<div class="status-badge '+BADGE_MAP[overall]+'">'+LABEL_MAP[overall]+'</div>'+

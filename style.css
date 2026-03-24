@@ -1032,6 +1032,64 @@ body {
 .stat-value.stat-gastos { color: var(--yellow); }
 .stat-value.stat-aramco { color: var(--red); }
 
+/* ─── EMP STATS (card header) ───────────────────────────── */
+.emp-stats {
+  display: flex;
+  align-items: center;
+  gap: 0;
+  flex-shrink: 0;
+}
+
+/* Anchos fijos — todas las cards idénticas */
+.stat        { display:flex; flex-direction:column; align-items:flex-end; gap:2px; padding: 0 16px; }
+.stat-w1     { width: 140px; }   /* Producción + Total */
+.stat-w2     { width: 110px; }   /* Comisión, Gastos, Aramco */
+.stat-w3     { width: 72px; }    /* Servicios */
+
+/* Separador vertical */
+.stat-sep {
+  width: 1px;
+  height: 32px;
+  background: var(--border);
+  flex-shrink: 0;
+  margin: 0 4px;
+}
+
+.stat-label {
+  font-size: 9px;
+  color: var(--text3);
+  letter-spacing: .5px;
+  text-transform: uppercase;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.stat-value {
+  font-family: var(--mono);
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text);
+  white-space: nowrap;
+}
+
+.stat-value.green        { color: var(--green); font-size: 15px; font-weight: 700; }
+.stat-value.amber        { color: var(--yellow); }
+.stat-value.count        { color: var(--blue); }
+.stat-value.stat-gastos  { color: var(--yellow); }
+.stat-value.stat-aramco  { color: var(--red); }
+
+
+/* ─── ARAMCO / GASTOS ────────────────────────────────────── */
+.summary-gastos { color: var(--yellow); }
+.summary-aramco { color: var(--red); }
+
+/* Day stat colors adicionales */
+.day-stat.orange { color: var(--yellow); }
+.day-stat.red    { color: var(--red); }
+
+.stat-value.stat-gastos { color: var(--yellow); }
+.stat-value.stat-aramco { color: var(--red); }
+
 /* ─── FINANCIAL FLOW (card header) ──────────────────────── */
 
 /* Card altura fija para consistencia visual */
