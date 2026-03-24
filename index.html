@@ -17,19 +17,19 @@
       <div class="login-brand">
         <div class="brand-mark large">PB</div>
         <div class="login-title">Pullman Bus</div>
-        <div class="login-sub">Sistema de Pago a Empresarios</div>
+        <div class="login-sub" data-i18n="login_sub">Sistema de Pago a Empresarios</div>
       </div>
 
       <div id="login-error" class="login-error" hidden></div>
 
       <div class="form-group">
-        <label class="form-label">USUARIO</label>
+        <label class="form-label" data-i18n="login_user_lbl">USUARIO</label>
         <input id="login-user" type="text" class="form-input" placeholder="usuario"
                autocomplete="username" autocapitalize="none" />
       </div>
 
       <div class="form-group">
-        <label class="form-label">CONTRASEÑA</label>
+        <label class="form-label" data-i18n="login_pass_lbl">CONTRASEÑA</label>
         <input id="login-pass" type="password" class="form-input" placeholder="••••••••"
                autocomplete="current-password" />
       </div>
@@ -39,7 +39,7 @@
         <span id="login-spinner" class="btn-spinner" hidden></span>
       </button>
 
-      <div class="login-note">Acceso restringido · Solo personal autorizado</div>
+      <div class="login-note" data-i18n="login_note">Acceso restringido · Solo personal autorizado</div>
     </div>
   </div>
 
@@ -54,20 +54,20 @@
         <div class="brand-mark">PB</div>
         <div>
           <div class="brand-name">Pullman Bus</div>
-          <div class="brand-sub">Pago a Empresarios</div>
+          <div class="brand-sub" data-i18n="brand_sub">Pago a Empresarios</div>
         </div>
       </div>
 
       <div class="header-controls">
         <!-- Fecha desde -->
         <div class="control-group">
-          <label class="control-label">DESDE</label>
+          <label class="control-label" data-i18n="label_from">DESDE</label>
           <input type="date" id="date-from" class="date-input" />
         </div>
 
         <!-- Fecha hasta -->
         <div class="control-group">
-          <label class="control-label">HASTA</label>
+          <label class="control-label" data-i18n="label_to">HASTA</label>
           <input type="date" id="date-to" class="date-input" />
         </div>
 
@@ -79,6 +79,10 @@
           <span id="header-username" class="header-username"></span>
           <span id="header-role" class="header-role-badge"></span>
         </div>
+        <div class="lang-toggle" id="lang-toggle">
+          <button class="lang-btn active" data-lang="es">ES</button>
+          <button class="lang-btn" data-lang="en">EN</button>
+        </div>
         <button id="btn-logout" class="btn-ghost" title="Cerrar sesión">
           ⎋ Salir
         </button>
@@ -88,42 +92,42 @@
     <!-- ───── RESUMEN GLOBAL ───── -->
     <section class="summary-bar" id="summary-bar" hidden>
       <div class="summary-card">
-        <div class="summary-label">PRODUCCIÓN TOTAL</div>
+        <div class="summary-label" data-i18n="s_produccion">PRODUCCIÓN TOTAL</div>
         <div class="summary-value" id="s-produccion">$0</div>
       </div>
       <div class="summary-divider"></div>
       <div class="summary-card">
-        <div class="summary-label">COMISIÓN</div>
+        <div class="summary-label" data-i18n="s_comision">COMISIÓN</div>
         <div class="summary-value accent" id="s-comision">$0</div>
       </div>
       <div class="summary-divider"></div>
       <div class="summary-card">
-        <div class="summary-label">GASTOS</div>
+        <div class="summary-label" data-i18n="s_gastos">GASTOS</div>
         <div class="summary-value summary-gastos" id="s-gastos">—</div>
       </div>
       <div class="summary-divider"></div>
       <div class="summary-card">
-        <div class="summary-label">ARAMCO</div>
+        <div class="summary-label" data-i18n="s_aramco">ARAMCO</div>
         <div class="summary-value summary-aramco" id="s-aramco">—</div>
       </div>
       <div class="summary-divider"></div>
       <div class="summary-card">
-        <div class="summary-label">TOTAL A PAGAR</div>
+        <div class="summary-label" data-i18n="s_neto">TOTAL A PAGAR</div>
         <div class="summary-value highlight" id="s-neto">$0</div>
       </div>
       <div class="summary-divider"></div>
       <div class="summary-card">
-        <div class="summary-label">EMPRESARIOS</div>
+        <div class="summary-label" data-i18n="s_count">EMPRESARIOS</div>
         <div class="summary-value" id="s-count">0</div>
       </div>
       <div class="summary-divider"></div>
       <div class="summary-card">
-        <div class="summary-label">SERVICIOS</div>
+        <div class="summary-label" data-i18n="s_services">SERVICIOS</div>
         <div class="summary-value" id="s-services">0</div>
       </div>
       <div class="summary-divider"></div>
       <div class="summary-card">
-        <div class="summary-label">PERÍODO</div>
+        <div class="summary-label" data-i18n="s_period">PERÍODO</div>
         <div class="summary-value period-range" id="s-period">—</div>
       </div>
     </section>
@@ -131,8 +135,8 @@
     <!-- ───── ESTADO / LOADER ───── -->
     <div id="state-empty" class="state-box">
       <div class="state-icon">⬡</div>
-      <div class="state-title">Seleccione el período</div>
-      <div class="state-desc">Elija el rango de días y haga click en Cargar.</div>
+      <div class="state-title" data-i18n="state_empty_title">Seleccione el período</div>
+      <div class="state-desc" data-i18n="state_empty_desc">Elija el rango de días y haga click en Cargar.</div>
     </div>
 
     <div id="state-loading" class="state-box" hidden>
@@ -143,9 +147,9 @@
 
     <div id="state-error" class="state-box" hidden>
       <div class="state-icon error-icon">✕</div>
-      <div class="state-title">Error al cargar</div>
+      <div class="state-title" data-i18n="state_error_title">Error al cargar</div>
       <div class="state-desc" id="error-msg"></div>
-      <button class="btn-secondary" onclick="document.getElementById('btn-load').click()">Reintentar</button>
+      <button class="btn-secondary" onclick="document.getElementById('btn-load').click()" data-i18n-text="btn_retry">Reintentar</button>
     </div>
 
     <!-- ───── LISTA EMPRESARIOS ───── -->
@@ -154,17 +158,17 @@
         <input type="search" id="search-input" class="search-input"
                placeholder="Buscar por nombre, código o RUT…" />
         <div class="filter-group">
-          <button class="filter-pill active" data-filter="all">Todos</button>
-          <button class="filter-pill" data-filter="pending">Pendiente</button>
-          <button class="filter-pill" data-filter="approved">Aprobado</button>
-          <button class="filter-pill" data-filter="parcial">Parcial</button>
-          <button class="filter-pill" data-filter="rejected">Rechazado</button>
-          <button class="filter-pill" data-filter="paid">Pagado</button>
+          <button class="filter-pill active" data-filter="all" data-i18n-text="filter_all">Todos</button>
+          <button class="filter-pill" data-filter="pending" data-i18n-text="filter_pending">Pendiente</button>
+          <button class="filter-pill" data-filter="approved" data-i18n-text="filter_approved">Aprobado</button>
+          <button class="filter-pill" data-filter="parcial" data-i18n-text="filter_parcial">Parcial</button>
+          <button class="filter-pill" data-filter="rejected" data-i18n-text="filter_rejected">Rechazado</button>
+          <button class="filter-pill" data-filter="paid" data-i18n-text="filter_paid">Pagado</button>
         </div>
         <label class="toggle-empty">
           <input type="checkbox" id="hide-empty" />
           <span class="toggle-track"></span>
-          <span class="toggle-label">Ocultar sin viajes</span>
+          <span class="toggle-label" data-i18n="toggle_hide">Ocultar sin viajes</span>
         </label>
       </div>
       <div id="empresarios-list"></div>
@@ -200,11 +204,12 @@
       <div class="confirm-title">Pago depositado</div>
       <div class="confirm-detail" id="detail-content"></div>
       <div class="confirm-btns">
-        <button class="confirm-btn-secondary" onclick="document.getElementById('detail-overlay').hidden=true">Cerrar</button>
+        <button class="confirm-btn-secondary" data-i18n-text="detail_close" onclick="document.getElementById('detail-overlay').hidden=true">Cerrar</button>
       </div>
     </div>
   </div>
 
+  <script src="i18n.js"></script>
   <script src="script.js"></script>
 </body>
 </html>

@@ -327,6 +327,52 @@ var $ = function(id){ return document.getElementById(id); };
 function show(id){ $(id).hidden=false; }
 function hide(id){ $(id).hidden=true; }
 
+/* ─── LANG ───────────────────────────────────────────────── */
+function applyLang(lang) {
+  setLang(lang);
+
+  // Update toggle buttons
+  document.querySelectorAll('.lang-btn').forEach(function(btn) {
+    btn.classList.toggle('active', btn.dataset.lang === lang);
+  });
+
+  // Update all data-i18n elements (labels)
+  document.querySelectorAll('[data-i18n]').forEach(function(el) {
+    el.textContent = t(el.dataset.i18n);
+  });
+
+  // Update all data-i18n-text elements (buttons etc)
+  document.querySelectorAll('[data-i18n-text]').forEach(function(el) {
+    el.textContent = t(el.dataset.i18nText);
+  });
+
+  // Update placeholders
+  var searchEl = $('search-input');
+  if (searchEl) searchEl.placeholder = t('search_placeholder');
+
+  var loginUser = $('login-user');
+  if (loginUser) loginUser.placeholder = t('login_user_ph');
+
+  var loginPass = $('login-pass');
+  if (loginPass) loginPass.placeholder = t('login_pass_ph');
+
+  // Update login button text (if not loading)
+  var loginBtnText = $('login-btn-text');
+  if (loginBtnText && loginBtnText.textContent !== t('login_loading')) {
+    loginBtnText.textContent = t('login_btn');
+  }
+
+  // Update load/logout buttons
+  var btnLoad = $('btn-load');
+  if (btnLoad) btnLoad.innerHTML = '<span class="btn-icon">⟳</span> ' + t('btn_load');
+
+  var btnLogout = $('btn-logout');
+  if (btnLogout) btnLogout.textContent = '⎋ ' + t('btn_logout');
+
+  // Re-render cards if data is loaded (to update all dynamic strings)
+  if (state.empresarios.length > 0) renderCards();
+}
+
 /* ─── LOGIN ──────────────────────────────────────────────── */
 function showLogin(){ hide('app'); show('login-screen'); $('login-user').focus(); }
 
@@ -335,7 +381,7 @@ function showApp() {
   $('date-from').value=state.dateFrom;
   $('date-to').value  =state.dateTo;
   $('header-username').textContent = state.username;
-  $('header-role').textContent     = state.role==='supervisor'?'Supervisor':'Contable';
+  $('header-role').textContent     = state.role==='supervisor'?t('role_supervisor'):t('role_contable');
   $('header-role').className       = 'header-role-badge '+(state.role==='supervisor'?'role-supervisor':'role-contable');
   resetAppState();
 }
@@ -352,12 +398,12 @@ function resetAppState() {
 
 async function doLogin() {
   var username=$('login-user').value.trim(), password=$('login-pass').value;
-  if (!username||!password){ showLoginError('Ingresa usuario y contraseña.'); return; }
+  if (!username||!password){ showLoginError(t('login_err_empty')); return; }
   setLoginLoading(true); hide('login-error');
   try {
     var res=await fetch('/api/auth',{ method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({username,password}) });
     var json=await res.json();
-    if (!res.ok||!json.ok) throw new Error(json.error||'Credenciales incorrectas');
+    if (!res.ok||!json.ok) throw new Error(json.error||t('login_err_creds'));
     saveSession(json.token,json.role,username);
     $('login-pass').value='';
     showApp();
@@ -431,7 +477,7 @@ function renderCards() {
 
   if (!empresas.length) {
     list.innerHTML='<div class="state-box"><div class="state-icon">◎</div>'+
-      '<div class="state-title">Sin resultados</div>'+
+      '<div class="state-title">'+t('no_results_title')+'</div>'+
       '<div class="state-desc">No hay empresarios que coincidan con los filtros activos.</div></div>';
     return;
   }
@@ -448,8 +494,8 @@ function renderCards() {
       rejected:'badge-rejected', paid:'badge-paid', parcial:'badge-parcial'
     };
     var LABEL_MAP = {
-      pending:'Pendiente', approved:'Aprobado',
-      rejected:'Rechazado', paid:'Pagado', parcial:'Parcial'
+      pending:t('badge_pending'), approved:t('badge_approved'),
+      rejected:t('badge_rejected'), paid:t('badge_paid'), parcial:t('badge_parcial')
     };
 
     // Calcular Aramco total del empresario en el rango visible
@@ -482,7 +528,7 @@ function renderCards() {
           '<div class="emp-meta">'+
             '<span>'+emp.ownerCode+'</span>'+
             '<span>'+(emp.rut||'—')+'</span>'+
-            '<span class="'+(hasRows?'meta-count-active':'')+'">'+rows.length+' servicio'+(rows.length!==1?'s':'')+'</span>'+
+            '<span class="'+(hasRows?'meta-count-active':'')+'">'+rows.length+' '+( rows.length!==1?t('svc_plural'):t('svc_singular'))+'</span>'+
           '</div>'+
         '</div>'+
         '<div class="emp-stats">'+
@@ -537,7 +583,7 @@ function renderCards() {
 /* ─── DAY BREAKDOWN ──────────────────────────────────────── */
 function renderDayBreakdown(emp) {
   var rows=state.services[emp.ownerCode]||[];
-  if (!rows.length) return '<div class="day-empty">Sin servicios en el período seleccionado</div>';
+  if (!rows.length) return '<div class="day-empty">'+t('table_empty')+'</div>';
 
   var byDay=groupByDay(rows);
   var sortedDays=Object.keys(byDay).sort();
@@ -557,30 +603,30 @@ function renderDayBreakdown(emp) {
     var dayActions='';
     if (state.role==='supervisor') {
       if (status==='paid') {
-        dayActions='<span class="day-paid-label">✓ Depositado</span>';
+        dayActions='<span class="day-paid-label">'+t('day_paid_label')+'</span>';
       } else if (status==='approved') {
         dayActions=
-          '<span class="day-by">por '+((ap&&ap.by)||'—')+'</span>'+
-          '<button class="day-btn day-btn-reject" data-day-action="reject" data-iso-date="'+isoDate+'">Rechazar</button>';
+          '<span class="day-by">'+t('day_by_prefix')+' '+((ap&&ap.by)||'—')+'</span>'+
+          '<button class="day-btn day-btn-reject" data-day-action="reject" data-iso-date="'+isoDate+'">'+t('day_actions_reject')+'</button>';
       } else if (status==='rejected') {
         dayActions=
           '<button class="day-btn day-btn-approve" data-day-action="approve" data-iso-date="'+isoDate+'">Aprobar</button>';
       } else {
         dayActions=
-          '<button class="day-btn day-btn-approve" data-day-action="approve" data-iso-date="'+isoDate+'">✓ Aprobar</button>'+
-          '<button class="day-btn day-btn-reject"  data-day-action="reject"  data-iso-date="'+isoDate+'">✕ Rechazar</button>';
+          '<button class="day-btn day-btn-approve" data-day-action="approve" data-iso-date="'+isoDate+'">'+t('day_actions_approve')+'</button>'+
+          '<button class="day-btn day-btn-reject"  data-day-action="reject"  data-iso-date="'+isoDate+'">'+t('day_actions_reject')+'</button>';
       }
     } else { // contable
       if (status==='paid') {
-        dayActions='<button class="day-btn day-btn-detail" data-day-action="detail" data-iso-date="'+isoDate+'">Ver comprobante ↗</button>';
+        dayActions='<button class="day-btn day-btn-detail" data-day-action="detail" data-iso-date="'+isoDate+'">'+t('day_actions_detail')+'</button>';
       } else if (status==='approved') {
         dayActions=
-          '<span class="day-by">✓ '+((ap&&ap.by)||'—')+'</span>'+
-          '<button class="day-btn day-btn-deposit" data-day-action="deposit" data-iso-date="'+isoDate+'">Depositar</button>';
+          '<span class="day-by">'+t('day_approved_by')+' '+((ap&&ap.by)||'—')+'</span>'+
+          '<button class="day-btn day-btn-deposit" data-day-action="deposit" data-iso-date="'+isoDate+'">'+t('day_actions_deposit')+'</button>';
       } else if (status==='rejected') {
-        dayActions='<span class="day-rejected-label">✕ Rechazado</span>';
+        dayActions='<span class="day-rejected-label">'+t('day_rejected_label')+'</span>';
       } else {
-        dayActions='<span class="day-pending-label">Pendiente aprobación</span>';
+        dayActions='<span class="day-pending-label">'+t('day_pending_label')+'</span>';
       }
     }
 
@@ -629,12 +675,12 @@ function renderDayTable(rows) {
   }).join('');
   return '<table class="services-mini-table day-table">'+
     '<thead><tr>'+
-      '<th>Hora</th><th>Ruta</th><th>Servicio</th><th>Bus·Pat.</th><th>Estado</th>'+
-      '<th class="num">Asientos</th><th class="num">Producción</th><th class="num">Comisión</th><th class="num">Total Neto</th>'+
+      '<th>'+t('th_hora')+'</th><th>'+t('th_ruta')+'</th><th>'+t('th_servicio')+'</th><th>'+t('th_bus')+'</th><th>'+t('th_estado')+'</th>'+
+      '<th class="num">'+t('th_asientos')+'</th><th class="num">'+t('th_produccion')+'</th><th class="num">'+t('th_comision')+'</th><th class="num">'+t('th_total_neto')+'</th>'+
     '</tr></thead>'+
     '<tbody>'+trs+
       '<tr class="subtotal-row">'+
-        '<td colspan="6" style="text-align:right;color:var(--text3)">TOTALES</td>'+
+        '<td colspan="6" style="text-align:right;color:var(--text3)">'+t('th_totales')+'</td>'+
         '<td class="td-amount num">'+formatCLP(tProd)+'</td>'+
         '<td class="td-amount num">'+formatCLP(tCom)+'</td>'+
         '<td class="td-neto">'+formatCLP(tNeto)+'</td>'+
@@ -649,19 +695,19 @@ async function handleApproveDay(code, isoDate) {
   var stats = calcStats(rows);
   showModal({
     icon:'✓', iconClass:'icon-approve',
-    title:'Aprobar pago · '+toDisplay(isoDate),
-    detail:'Aprobando pago del <strong>'+toDisplay(isoDate)+'</strong> a <strong>'+emp.firstName+' '+emp.lastName+'</strong>'+
+    title:t('modal_approve_title')+' · '+toDisplay(isoDate),
+    detail:t('modal_approve_detail')+' <strong>'+toDisplay(isoDate)+'</strong> a <strong>'+emp.firstName+' '+emp.lastName+'</strong> '+t('modal_approve_to')+' <strong>'+emp.firstName+' '+emp.lastName+'</strong>'+
            '<span class="amount">'+formatCLP(calcFinalNeto(stats.neto,code,isoDate))+'</span>'+
            (getAramcoDay(code,isoDate)>0?'<div style="font-size:11px;color:var(--text3);margin-top:2px">Neto Konnect: '+formatCLP(stats.neto)+' − Aramco: '+formatCLP(getAramcoDay(code,isoDate))+'</div>':''),
-    confirmText:'Sí, aprobar', confirmClass:'btn-green',
+    confirmText:t('modal_approve_ok'), confirmClass:'btn-green',
     onConfirm: async function() {
       try {
         var key=approvalKey(code,isoDate);
         await postApproval(key,'approved');
         state.approvals[key]={ status:'approved', by:state.username, at:new Date().toISOString() };
         renderCards();
-        toast('✓ '+toDisplay(isoDate)+' aprobado para '+emp.firstName);
-      } catch(err){ toastError('Error: '+err.message); }
+        toast(toDisplay(isoDate)+' '+t('toast_approved')+' '+emp.firstName);
+      } catch(err){ toastError(t('toast_error_approve')+' '+err.message); }
     }
   });
 }
@@ -670,17 +716,17 @@ async function handleRejectDay(code, isoDate) {
   var emp=state.empresarios.find(function(e){ return e.ownerCode===code; });
   showModal({
     icon:'✕', iconClass:'icon-reject',
-    title:'Rechazar pago · '+toDisplay(isoDate),
-    detail:'¿Rechazar pago del <strong>'+toDisplay(isoDate)+'</strong> a <strong>'+emp.firstName+' '+emp.lastName+'</strong>?',
-    confirmText:'Sí, rechazar', confirmClass:'btn-red', danger:true,
+    title:t('modal_reject_title')+' · '+toDisplay(isoDate),
+    detail:t('modal_reject_detail')+' <strong>'+toDisplay(isoDate)+'</strong> a <strong>'+emp.firstName+' '+emp.lastName+'</strong>?',
+    confirmText:t('modal_reject_ok'), confirmClass:'btn-red', danger:true,
     onConfirm: async function() {
       try {
         var key=approvalKey(code,isoDate);
         await postApproval(key,'rejected');
         state.approvals[key]={ status:'rejected', by:state.username, at:new Date().toISOString() };
         renderCards();
-        toast('Rechazado '+toDisplay(isoDate)+' para '+emp.firstName);
-      } catch(err){ toastError('Error: '+err.message); }
+        toast(t('toast_rejected')+' '+toDisplay(isoDate)+' '+t('day_by_prefix')+' '+emp.firstName);
+      } catch(err){ toastError(t('toast_error_reject')+' '+err.message); }
     }
   });
 }
@@ -692,14 +738,14 @@ function handleDepositDay(code, isoDate) {
   var ap    = state.approvals[approvalKey(code,isoDate)];
   showModal({
     icon:'⬆', iconClass:'icon-deposit',
-    title:'Depositar · '+toDisplay(isoDate),
-    detail:'Depósito del <strong>'+toDisplay(isoDate)+'</strong> a <strong>'+emp.firstName+' '+emp.lastName+'</strong>'+
+    title:t('modal_deposit_title')+' · '+toDisplay(isoDate),
+    detail:t('modal_deposit_detail')+' <strong>'+toDisplay(isoDate)+'</strong> a <strong>'+emp.firstName+' '+emp.lastName+'</strong> '+t('modal_approve_to')+' <strong>'+emp.firstName+' '+emp.lastName+'</strong>'+
            '<span class="amount">'+formatCLP(calcFinalNeto(stats.neto,code,isoDate))+'</span>'+
            (getAramcoDay(code,isoDate)>0?'<div style="font-size:11px;color:var(--text3);margin-top:2px">Neto Konnect: '+formatCLP(stats.neto)+' − Aramco: '+formatCLP(getAramcoDay(code,isoDate))+'</div>':'')
            +(ap&&ap.by?'<div style="font-size:12px;color:var(--text2)">Aprobado por: '+ap.by+'</div>':''),
-    inputLabel:'N° DE TRANSFERENCIA / COMPROBANTE',
-    inputPlaceholder:'Ej: 123456789',
-    confirmText:'Confirmar depósito', confirmClass:'btn-blue',
+    inputLabel:t('modal_deposit_input'),
+    inputPlaceholder:t('modal_deposit_ph'),
+    confirmText:t('modal_deposit_ok'), confirmClass:'btn-blue',
     onConfirm: function(ref) {
       var key=approvalKey(code,isoDate);
       var finalAmt = calcFinalNeto(stats.neto, code, isoDate);
@@ -711,7 +757,7 @@ function handleDepositDay(code, isoDate) {
         date:isoDate, by:state.username, approvedBy:ap&&ap.by?ap.by:'—',
         at:new Date().toISOString() };
       savePayments(); renderCards();
-      toast('✓ Depósito '+toDisplay(isoDate)+' registrado para '+emp.firstName);
+      toast(t('toast_deposited')+' '+toDisplay(isoDate)+' '+t('toast_deposited2')+' '+emp.firstName);
     }
   });
 }
@@ -728,14 +774,14 @@ function handleDepositRange(code) {
 
   showModal({
     icon:'⬆', iconClass:'icon-deposit',
-    title:'Depositar rango aprobado',
+    title:t('modal_range_title'),
     detail:'Depositando <strong>'+approvedDays.length+' día'+(approvedDays.length>1?'s':'')+
-           '</strong> aprobados a <strong>'+emp.firstName+' '+emp.lastName+'</strong>'+
+           '</strong> aprobados a <strong>'+emp.firstName+' '+emp.lastName+'</strong> '+t('modal_approve_to')+' <strong>'+emp.firstName+' '+emp.lastName+'</strong>'+
            '<span class="amount">'+formatCLP(totalNeto)+'</span>'+
            '<div style="font-size:11px;color:var(--text3);margin-top:4px">Días: '+approvedDays.map(toDisplay).join(', ')+'</div>',
-    inputLabel:'N° DE TRANSFERENCIA / COMPROBANTE',
-    inputPlaceholder:'Ej: 123456789',
-    confirmText:'Confirmar depósito', confirmClass:'btn-blue',
+    inputLabel:t('modal_deposit_input'),
+    inputPlaceholder:t('modal_deposit_ph'),
+    confirmText:t('modal_deposit_ok'), confirmClass:'btn-blue',
     onConfirm: function(ref) {
       approvedDays.forEach(function(isoDate) {
         var key  = approvalKey(code,isoDate);
@@ -776,16 +822,16 @@ function showPaymentDetail(code, isoDate) {
   showDetailModal(
     '<div style="text-align:left;width:100%">'+
     '<table style="width:100%;border-collapse:collapse">'+
-    detailRow('Empresario', p.name||'—')+
-    detailRow('Fecha servicio', toDisplay(p.date||isoDate))+
-    detailRow('Total pagado','<span style="color:var(--green);font-family:var(--mono);font-size:18px;font-weight:700">'+(p.amount||'$0')+'</span>')+
-    (p.amountKonnect&&p.amountKonnect!==p.amount?detailRow('Neto Konnect', p.amountKonnect):'')+
-    (p.amountAramco&&p.amountAramco!=='$0'?detailRow('Descuento Aramco','<span style="color:var(--red)">−'+p.amountAramco+'</span>'):'')+
-    detailRow('N° Transferencia','<span style="font-family:var(--mono);font-size:15px;color:var(--blue)">'+(p.transferRef||'—')+'</span>')+
-    detailRow('Depositado por', p.by||'—')+
-    detailRow('Aprobado por',   p.approvedBy||'—')+
-    detailRow('Fecha depósito', atStr)+
-    (p.rangeDeposit?detailRow('Tipo','Depósito por rango'):'')
+    detailRow(t('detail_empresario'), p.name||'—')+
+    detailRow(t('detail_date'), toDisplay(p.date||isoDate))+
+    detailRow(t('detail_total'),'<span style="color:var(--green);font-family:var(--mono);font-size:18px;font-weight:700">'+(p.amount||'$0')+'</span>')+
+    (p.amountKonnect&&p.amountKonnect!==p.amount?detailRow(t('detail_neto'), p.amountKonnect):'')+
+    (p.amountAramco&&p.amountAramco!=='$0'?detailRow(t('detail_aramco'),'<span style="color:var(--red)">−'+p.amountAramco+'</span>'):'')+
+    detailRow(t('detail_transfer'),'<span style="font-family:var(--mono);font-size:15px;color:var(--blue)">'+(p.transferRef||'—')+'</span>')+
+    detailRow(t('detail_by'), p.by||'—')+
+    detailRow(t('detail_approved_by'),   p.approvedBy||'—')+
+    detailRow(t('detail_at'), atStr)+
+    (p.rangeDeposit?detailRow(t('detail_range'),'—'):'')
     +'</table></div>'
   );
 }
@@ -805,23 +851,23 @@ function loadPayments() {
 async function loadData() {
   state.dateFrom=$('date-from').value||todayStr();
   state.dateTo  =$('date-to').value  ||todayStr();
-  if (state.dateFrom>state.dateTo){ toast('⚠ DESDE no puede ser mayor que HASTA'); return; }
+  if (state.dateFrom>state.dateTo){ toast(t('toast_date_error')); return; }
   setLoading('Cargando '+toDisplay(state.dateFrom)+' → '+toDisplay(state.dateTo)+'…');
   try {
-    $('loading-msg').textContent='Obteniendo empresarios…';
+    $('loading-msg').textContent=t('loading_empresarios');
     var rawEmps=await fetchAllEmpresas();
     state.empresarios=rawEmps.map(function(u){
       return{ id:u.id, login:u.login, firstName:u.first_name||'', lastName:u.last_name||'',
               ownerCode:u.owner_code||'', rut:u.rut_number||'' };
     });
 
-    $('loading-msg').textContent='Cargando aprobaciones…';
+    $('loading-msg').textContent=t('loading_approvals');
     await fetchApprovals();
 
-    $('loading-msg').textContent='Cargando cargos Aramco…';
+    $('loading-msg').textContent=t('loading_aramco');
     await fetchAramco();
 
-    $('loading-msg').textContent='Cargando servicios…';
+    $('loading-msg').textContent=t('loading_services');
     var allRows=await fetchAllServices(state.dateFrom,state.dateTo);
 
     state.services={};
@@ -840,7 +886,7 @@ async function loadData() {
 
     setReady(); renderCards();
     var withSvc=state.empresarios.filter(function(e){ return (state.services[e.ownerCode]||[]).length>0; }).length;
-    toast('✓ '+allRows.length+' servicios · '+withSvc+' empresarios activos');
+    toast('✓ '+allRows.length+' '+t('s_services').toLowerCase()+' · '+withSvc+' '+t('s_count').toLowerCase()+' '+t('toast_loaded').split('·')[1].trim());
   } catch(err){ console.error(err); setError(err.message); }
 }
 
@@ -875,8 +921,16 @@ document.querySelectorAll('.filter-pill').forEach(function(btn){
 $('search-input').addEventListener('input', function(e){ state.search=e.target.value; renderCards(); });
 $('hide-empty').addEventListener('change', function(e){ state.hideEmpty=e.target.checked; renderCards(); });
 
+// Lang toggle
+document.querySelectorAll('.lang-btn').forEach(function(btn) {
+  btn.addEventListener('click', function() {
+    applyLang(btn.dataset.lang);
+  });
+});
+
 /* ─── INIT ───────────────────────────────────────────────── */
 (function init(){
   loadPayments();
+  applyLang(currentLang); // apply saved language on load
   if (loadSession()) showApp(); else showLogin();
 }());

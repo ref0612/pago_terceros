@@ -1220,3 +1220,37 @@ body {
 @media (max-width: 1100px) {
   .emp-flow { display: none; }
 }
+
+/* ─── LANG TOGGLE ────────────────────────────────────────── */
+.lang-toggle {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  background: var(--bg2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  padding: 3px;
+  flex-shrink: 0;
+}
+
+.lang-btn {
+  padding: 3px 10px;
+  border: none;
+  border-radius: var(--radius);
+  background: transparent;
+  color: var(--text3);
+  font-family: var(--sans);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: .5px;
+  cursor: pointer;
+  transition: all .15s;
+}
+
+.lang-btn:hover { color: var(--text); }
+
+.lang-btn.active {
+  background: var(--panel);
+  color: var(--accent);
+  box-shadow: var(--shadow-xs);
+}
