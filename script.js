@@ -414,8 +414,8 @@ function computeGlobalSummary() {
   });
   $('s-produccion').textContent = formatCLP(tp);
   $('s-comision').textContent   = formatCLP(tc);
-  $('s-gastos').textContent     = tg > 0 ? formatCLP(tg) : '—';
-  $('s-aramco').textContent     = ta > 0 ? formatCLP(ta) : '—';
+  $('s-gastos').textContent     = formatCLP(tg);
+  $('s-aramco').textContent     = formatCLP(ta);
   $('s-neto').textContent       = formatCLP(tn);
   $('s-count').textContent      = getFiltered().length;
   $('s-services').textContent   = ts;
@@ -452,6 +452,14 @@ function renderCards() {
       rejected:'Rechazado', paid:'Pagado', parcial:'Parcial'
     };
 
+    // Calcular Aramco total del empresario en el rango visible
+    var empAramcoTotal = (function() {
+      var byDay = groupByDay(rows);
+      var t = 0;
+      Object.keys(byDay).forEach(function(d){ t += getAramcoDay(emp.ownerCode, d); });
+      return t;
+    })();
+
     var card=document.createElement('div');
     card.className='emp-card'+(expanded?' expanded':'')+(!hasRows?' no-services':'');
     card.dataset.code=emp.ownerCode;
@@ -480,7 +488,9 @@ function renderCards() {
         '<div class="emp-stats">'+
           '<div class="stat"><div class="stat-label">Producción</div><div class="stat-value amber">'+formatCLP(totals.prod)+'</div></div>'+
           '<div class="stat"><div class="stat-label">Comisión</div><div class="stat-value">'+formatCLP(totals.com)+'</div></div>'+
-          '<div class="stat"><div class="stat-label">A Pagar</div><div class="stat-value green">'+formatCLP(totals.neto)+'</div></div>'+
+          '<div class="stat"><div class="stat-label">Gastos</div><div class="stat-value stat-gastos">'+(totals.gastos>0?formatCLP(totals.gastos):'—')+'</div></div>'+
+          '<div class="stat"><div class="stat-label">Aramco</div><div class="stat-value stat-aramco">'+(empAramcoTotal>0?formatCLP(empAramcoTotal):'—')+'</div></div>'+
+          '<div class="stat"><div class="stat-label">A Pagar</div><div class="stat-value green">'+formatCLP(calcFinalNetoTotal(emp.ownerCode))+'</div></div>'+
           '<div class="stat"><div class="stat-label">Servicios</div><div class="stat-value count">'+rows.length+'</div></div>'+
         '</div>'+
         '<div class="emp-status">'+
