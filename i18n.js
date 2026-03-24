@@ -159,6 +159,11 @@ var TRANSLATIONS = {
     toast_date_error: '⚠ DESDE no puede ser mayor que HASTA',
     toast_loaded:     'servicios · empresarios activos',
 
+    // New features
+    btn_approve_all:  'Aprobar todos',
+    btn_activity:     'Historial',
+    activity_title:   'Historial de actividad',
+
     // Loading
     loading_empresarios: 'Obteniendo empresarios…',
     loading_approvals:   'Cargando aprobaciones…',
@@ -320,6 +325,11 @@ var TRANSLATIONS = {
     toast_error_reject:  'Error rejecting:',
     toast_date_error: '⚠ FROM date cannot be greater than TO',
     toast_loaded:     'services · active operators',
+
+    // New features
+    btn_approve_all:  'Approve all',
+    btn_activity:     'Activity',
+    activity_title:   'Activity log',
 
     // Loading
     loading_empresarios: 'Fetching operators…',

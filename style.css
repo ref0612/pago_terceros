@@ -1254,3 +1254,199 @@ body {
   color: var(--accent);
   box-shadow: var(--shadow-xs);
 }
+
+/* ─── URGENCY BADGE ──────────────────────────────────────── */
+.overdue-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin-top: 4px;
+  padding: 2px 8px;
+  background: var(--yellow-bg);
+  border: 1px solid var(--yellow-brd);
+  border-radius: 999px;
+  font-size: 10px;
+  font-weight: 600;
+  color: var(--yellow);
+  white-space: nowrap;
+}
+
+/* ─── APPROVE ALL BUTTON ─────────────────────────────────── */
+.btn-approve-all {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 36px;
+  padding: 0 16px;
+  background: var(--green-bg);
+  border: 1px solid var(--green-brd);
+  border-radius: var(--radius-md);
+  color: var(--green);
+  font-family: var(--sans);
+  font-weight: 600;
+  font-size: 12px;
+  cursor: pointer;
+  transition: all .15s;
+  white-space: nowrap;
+}
+.btn-approve-all:hover { background: var(--green); color: #fff; border-color: var(--green); }
+
+/* ─── ACTIVITY BUTTON ────────────────────────────────────── */
+.btn-activity {
+  font-size: 12px;
+  gap: 5px;
+}
+
+/* ─── ACTIVITY PANEL ─────────────────────────────────────── */
+.activity-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(15,23,42,.2);
+  backdrop-filter: blur(2px);
+  z-index: 300;
+}
+
+.activity-panel {
+  position: fixed;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  width: 420px;
+  max-width: 100vw;
+  background: var(--panel);
+  border-left: 1px solid var(--border);
+  box-shadow: var(--shadow);
+  z-index: 400;
+  display: flex;
+  flex-direction: column;
+  animation: slideIn .2s ease;
+}
+
+@keyframes slideIn {
+  from { transform: translateX(100%); opacity: 0; }
+  to   { transform: translateX(0);    opacity: 1; }
+}
+
+.activity-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 18px 20px;
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+}
+
+.activity-title {
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--text);
+}
+
+.activity-close {
+  width: 28px; height: 28px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: transparent;
+  color: var(--text3);
+  font-size: 13px;
+  cursor: pointer;
+  transition: all .15s;
+  display: flex; align-items: center; justify-content: center;
+}
+.activity-close:hover { background: var(--red-bg); color: var(--red); border-color: var(--red-brd); }
+
+.activity-list {
+  flex: 1;
+  overflow-y: auto;
+  padding: 8px 0;
+}
+
+.activity-loading, .activity-empty {
+  text-align: center;
+  padding: 40px 20px;
+  color: var(--text3);
+  font-size: 13px;
+  font-style: italic;
+}
+
+/* Activity entry */
+.act-entry {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 12px 20px;
+  border-bottom: 1px solid var(--border);
+  transition: background .1s;
+}
+.act-entry:hover { background: var(--bg); }
+
+.act-icon {
+  width: 28px; height: 28px;
+  border-radius: 50%;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 12px;
+  flex-shrink: 0;
+  margin-top: 2px;
+}
+.act-approved .act-icon { background: var(--green-bg);  color: var(--green); border: 1px solid var(--green-brd); }
+.act-rejected .act-icon { background: var(--red-bg);    color: var(--red);   border: 1px solid var(--red-brd); }
+.act-paid     .act-icon { background: var(--blue-bg);   color: var(--blue);  border: 1px solid var(--blue-brd); }
+
+.act-body { flex: 1; min-width: 0; }
+
+.act-name {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.act-code {
+  font-family: var(--mono);
+  font-size: 10px;
+  color: var(--text3);
+  font-weight: 400;
+}
+
+.act-meta {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 3px;
+  flex-wrap: wrap;
+}
+
+.act-meta span {
+  font-size: 11px;
+  color: var(--text3);
+}
+
+.act-amount {
+  font-family: var(--mono) !important;
+  font-weight: 600 !important;
+  color: var(--green) !important;
+}
+
+.act-badge {
+  font-size: 10px;
+  font-weight: 600;
+  padding: 1px 7px;
+  border-radius: 999px;
+}
+.act-badge-approved { background: var(--green-bg); color: var(--green); }
+.act-badge-rejected { background: var(--red-bg);   color: var(--red); }
+.act-badge-paid     { background: var(--blue-bg);  color: var(--blue); }
+
+.act-right {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 3px;
+  flex-shrink: 0;
+}
+
+.act-by   { font-size: 11px; font-weight: 600; color: var(--text2); }
+.act-time { font-size: 10px; color: var(--text3); font-family: var(--mono); }

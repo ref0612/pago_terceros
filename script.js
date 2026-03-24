@@ -309,6 +309,28 @@ async function postApproval(key, action) {
   return apiFetch('/api/approvals',{ method:'POST', body:JSON.stringify({ key:key, action:action }) });
 }
 
+/* ─── ACTIVITY LOG ──────────────────────────────────────── */
+async function logActivity(action, code, isoDate, amount, name) {
+  try {
+    await apiFetch('/api/activity', {
+      method: 'POST',
+      body: JSON.stringify({ action, code, isoDate, amount, name }),
+    });
+  } catch(e) {
+    console.warn('[activity] log failed:', e.message);
+  }
+}
+
+async function fetchActivity() {
+  try {
+    var json = await apiFetch('/api/activity?limit=100');
+    return json.entries || [];
+  } catch(e) {
+    console.warn('[activity] fetch failed:', e.message);
+    return [];
+  }
+}
+
 async function fetchAramco() {
   try {
     var json = await apiFetch('/api/aramco?from='+state.dateFrom+'&to='+state.dateTo);
@@ -378,12 +400,36 @@ function showLogin(){ hide('app'); show('login-screen'); $('login-user').focus()
 
 function showApp() {
   hide('login-screen'); show('app');
-  $('date-from').value=state.dateFrom;
-  $('date-to').value  =state.dateTo;
+
+  // Auto-set today's date
+  var today = todayStr();
+  state.dateFrom = today;
+  state.dateTo   = today;
+  $('date-from').value = today;
+  $('date-to').value   = today;
+
   $('header-username').textContent = state.username;
   $('header-role').textContent     = state.role==='supervisor'?t('role_supervisor'):t('role_contable');
   $('header-role').className       = 'header-role-badge '+(state.role==='supervisor'?'role-supervisor':'role-contable');
+
+  // Show role-specific buttons
+  var btnApproveAll = $('btn-approve-all');
+  var btnActivity   = $('btn-activity');
+  if (btnApproveAll) btnApproveAll.hidden = (state.role !== 'supervisor');
+  if (btnActivity)   btnActivity.hidden   = false;
+
+  // Role-based default filter
+  // Supervisor → ver pendientes | Contable → ver aprobados listos para depositar
+  var defaultFilter = state.role === 'supervisor' ? 'pending' : 'approved';
+  state.filter = defaultFilter;
+  document.querySelectorAll('.filter-pill').forEach(function(btn) {
+    btn.classList.toggle('active', btn.dataset.filter === defaultFilter);
+  });
+
   resetAppState();
+
+  // Auto-load today's data
+  loadData();
 }
 
 function resetAppState() {
@@ -498,6 +544,15 @@ function renderCards() {
       rejected:t('badge_rejected'), paid:t('badge_paid'), parcial:t('badge_parcial')
     };
 
+    // Calcular días pendientes atrasados (anteriores a hoy)
+    var today = todayStr();
+    var overdueDays = (function() {
+      var byDay = groupByDay(rows);
+      return Object.keys(byDay).filter(function(d) {
+        return d < today && getDayStatus(emp.ownerCode, d) === 'pending';
+      }).length;
+    })();
+
     // Calcular Aramco total del empresario en el rango visible
     var empAramcoTotal = (function() {
       var byDay = groupByDay(rows);
@@ -530,6 +585,7 @@ function renderCards() {
             '<span>'+(emp.rut||'—')+'</span>'+
             '<span class="'+(hasRows?'meta-count-active':'')+'">'+rows.length+' '+( rows.length!==1?t('svc_plural'):t('svc_singular'))+'</span>'+
           '</div>'+
+        (overdueDays>0?'<div class="overdue-badge">⚠ '+overdueDays+' día'+(overdueDays>1?'s':'')+(currentLang==='en'?' overdue':' atrasado'+(overdueDays>1?'s':''))+'</div>':'')+
         '</div>'+
         '<div class="emp-stats">'+
           '<div class="stat stat-w1"><div class="stat-label">Producción</div><div class="stat-value amber">'+formatCLP(totals.prod)+'</div></div>'+
@@ -705,6 +761,7 @@ async function handleApproveDay(code, isoDate) {
         var key=approvalKey(code,isoDate);
         await postApproval(key,'approved');
         state.approvals[key]={ status:'approved', by:state.username, at:new Date().toISOString() };
+        logActivity('approved', code, isoDate, formatCLP(calcFinalNeto(stats.neto,code,isoDate)), emp.firstName+' '+emp.lastName);
         renderCards();
         toast(toDisplay(isoDate)+' '+t('toast_approved')+' '+emp.firstName);
       } catch(err){ toastError(t('toast_error_approve')+' '+err.message); }
@@ -724,6 +781,7 @@ async function handleRejectDay(code, isoDate) {
         var key=approvalKey(code,isoDate);
         await postApproval(key,'rejected');
         state.approvals[key]={ status:'rejected', by:state.username, at:new Date().toISOString() };
+        logActivity('rejected', code, isoDate, '', emp.firstName+' '+emp.lastName);
         renderCards();
         toast(t('toast_rejected')+' '+toDisplay(isoDate)+' '+t('day_by_prefix')+' '+emp.firstName);
       } catch(err){ toastError(t('toast_error_reject')+' '+err.message); }
@@ -756,6 +814,7 @@ function handleDepositDay(code, isoDate) {
         amountAramco: formatCLP(getAramcoDay(code,isoDate)),
         date:isoDate, by:state.username, approvedBy:ap&&ap.by?ap.by:'—',
         at:new Date().toISOString() };
+      logActivity('paid', code, isoDate, formatCLP(finalAmt), emp.firstName+' '+emp.lastName);
       savePayments(); renderCards();
       toast(t('toast_deposited')+' '+toDisplay(isoDate)+' '+t('toast_deposited2')+' '+emp.firstName);
     }
@@ -897,10 +956,76 @@ $('login-btn').addEventListener('click', doLogin);
 });
 
 $('btn-logout').addEventListener('click', function(){
-  clearSession(); state.empresarios=[]; state.services={};
-  state.approvals={}; state.aramco={}; state.expanded=new Set();
-  resetAppState(); showLogin();
+  showSessionSummary();
 });
+
+function showSessionSummary() {
+  // Build today's summary from payments and approvals
+  var today = todayStr();
+  var approved=[], rejected=[], paid=[];
+
+  state.empresarios.forEach(function(emp) {
+    var byDay = groupByDay(state.services[emp.ownerCode]||[]);
+    Object.keys(byDay).forEach(function(d) {
+      if (d !== today) return;
+      var key = approvalKey(emp.ownerCode, d);
+      var ap  = state.approvals[key];
+      var pm  = state.payments[key];
+      var name = emp.firstName+' '+emp.lastName;
+      var stats = calcStats(byDay[d]);
+      var final = calcFinalNeto(stats.neto, emp.ownerCode, d);
+      if (pm && pm.status==='paid' && pm.by===state.username) paid.push({ name:name, amount:final, ref:pm.transferRef });
+      else if (ap && ap.by===state.username) {
+        if (ap.status==='approved') approved.push({ name:name, amount:final });
+        if (ap.status==='rejected') rejected.push({ name:name });
+      }
+    });
+  });
+
+  var totalPaid     = paid.reduce(function(s,x){ return s+x.amount; }, 0);
+  var totalApproved = approved.reduce(function(s,x){ return s+x.amount; }, 0);
+  var pendingCount  = state.empresarios.filter(function(emp) {
+    return Object.keys(groupByDay(state.services[emp.ownerCode]||[])).some(function(d){ return getDayStatus(emp.ownerCode,d)==='pending'; });
+  }).length;
+
+  var html = '<div style="width:100%">';
+
+  if (state.role === 'supervisor') {
+    html += summaryRow('✓ Aprobados hoy', approved.length+' empresarios · '+formatCLP(totalApproved), 'var(--green)');
+    html += summaryRow('✕ Rechazados hoy', rejected.length+' empresarios', rejected.length>0?'var(--red)':'var(--text3)');
+    if (pendingCount>0) html += summaryRow('⚠ Pendientes aún', pendingCount+' empresarios sin aprobar', 'var(--yellow)');
+  } else {
+    html += summaryRow('💳 Depositados hoy', paid.length+' pagos · '+formatCLP(totalPaid), 'var(--blue)');
+    if (pendingCount>0) html += summaryRow('⏳ Aprobados sin depositar', pendingCount+' pendientes', 'var(--yellow)');
+  }
+
+  if (!approved.length && !paid.length && !rejected.length) {
+    html += '<div style="text-align:center;padding:16px;color:var(--text3);font-size:13px">Sin actividad registrada hoy.</div>';
+  }
+
+  html += '</div>';
+
+  $('ss-content').innerHTML = html;
+  $('ss-title').textContent = 'Resumen de sesión — '+toDisplay(today);
+  $('session-summary-overlay').hidden = false;
+
+  $('ss-confirm').onclick = function() {
+    $('session-summary-overlay').hidden = true;
+    clearSession(); state.empresarios=[]; state.services={};
+    state.approvals={}; state.aramco={}; state.expanded=new Set();
+    resetAppState(); showLogin();
+  };
+  $('ss-cancel').onclick = function() {
+    $('session-summary-overlay').hidden = true;
+  };
+}
+
+function summaryRow(label, value, color) {
+  return '<div style="display:flex;justify-content:space-between;align-items:center;padding:10px 0;border-bottom:1px solid var(--border)">' +
+    '<span style="font-size:13px;color:var(--text2)">'+label+'</span>' +
+    '<span style="font-family:var(--mono);font-size:13px;font-weight:700;color:'+(color||'var(--text)')+'">'+value+'</span>' +
+    '</div>';
+}
 
 $('btn-load').addEventListener('click', loadData);
 
@@ -920,6 +1045,102 @@ document.querySelectorAll('.filter-pill').forEach(function(btn){
 
 $('search-input').addEventListener('input', function(e){ state.search=e.target.value; renderCards(); });
 $('hide-empty').addEventListener('change', function(e){ state.hideEmpty=e.target.checked; renderCards(); });
+
+/* ─── APROBAR TODOS ─────────────────────────────────────── */
+$('btn-approve-all').addEventListener('click', function() {
+  var pending = [];
+  state.empresarios.forEach(function(emp) {
+    var byDay = groupByDay(state.services[emp.ownerCode]||[]);
+    Object.keys(byDay).forEach(function(d) {
+      if (getDayStatus(emp.ownerCode, d) === 'pending') {
+        var stats = calcStats(byDay[d]);
+        pending.push({ code: emp.ownerCode, isoDate: d, stats: stats,
+          name: emp.firstName+' '+emp.lastName });
+      }
+    });
+  });
+
+  if (!pending.length) { toast('No hay pagos pendientes para aprobar.'); return; }
+
+  var totalNeto = pending.reduce(function(s,x){ return s + calcFinalNeto(x.stats.neto, x.code, x.isoDate); }, 0);
+
+  showModal({
+    icon: '✓', iconClass: 'icon-approve',
+    title: 'Aprobar todos los pendientes',
+    detail: 'Se aprobarán <strong>'+pending.length+' pago'+(pending.length>1?'s':'')+'</strong> por un total de:'+
+            '<span class="amount">'+formatCLP(totalNeto)+'</span>',
+    confirmText: 'Aprobar todos', confirmClass: 'btn-green',
+    onConfirm: async function() {
+      var done = 0;
+      for (var i=0; i<pending.length; i++) {
+        var p   = pending[i];
+        var key = approvalKey(p.code, p.isoDate);
+        try {
+          await postApproval(key, 'approved');
+          state.approvals[key] = { status:'approved', by:state.username, at:new Date().toISOString() };
+          logActivity('approved', p.code, p.isoDate, formatCLP(calcFinalNeto(p.stats.neto,p.code,p.isoDate)), p.name);
+          done++;
+        } catch(e) { console.warn('approve failed:', p.code, e.message); }
+      }
+      renderCards();
+      toast('✓ '+done+' pago'+(done>1?'s':'')+' aprobados');
+    }
+  });
+});
+
+/* ─── HISTORIAL ──────────────────────────────────────────── */
+$('btn-activity').addEventListener('click', function() {
+  showActivityPanel();
+});
+$('activity-close').addEventListener('click', function() {
+  $('activity-panel').hidden = true;
+  $('activity-backdrop').hidden = true;
+});
+$('activity-backdrop').addEventListener('click', function() {
+  $('activity-panel').hidden = true;
+  $('activity-backdrop').hidden = true;
+});
+
+async function showActivityPanel() {
+  $('activity-panel').hidden = false;
+  $('activity-backdrop').hidden = false;
+  $('activity-list').innerHTML = '<div class="activity-loading">Cargando…</div>';
+
+  var entries = await fetchActivity();
+
+  if (!entries.length) {
+    $('activity-list').innerHTML = '<div class="activity-empty">Sin actividad registrada.</div>';
+    return;
+  }
+
+  var ACTION_ICON  = { approved:'✓', rejected:'✕', paid:'💳' };
+  var ACTION_CLASS = { approved:'act-approved', rejected:'act-rejected', paid:'act-paid' };
+  var ACTION_LABEL = { approved:'Aprobado', rejected:'Rechazado', paid:'Depositado' };
+
+  var html = entries.map(function(e) {
+    var dt = e.at ? new Date(e.at).toLocaleString('es-CL',{
+      day:'2-digit',month:'2-digit',year:'numeric',
+      hour:'2-digit',minute:'2-digit'
+    }) : '—';
+    return '<div class="act-entry '+ACTION_CLASS[e.action]+'">' +
+      '<div class="act-icon">'+ACTION_ICON[e.action]+'</div>' +
+      '<div class="act-body">' +
+        '<div class="act-name">'+e.name+'<span class="act-code">'+e.code+'</span></div>' +
+        '<div class="act-meta">'+
+          '<span class="act-badge act-badge-'+e.action+'">'+ACTION_LABEL[e.action]+'</span>'+
+          (e.isoDate?'<span>'+toDisplay(e.isoDate)+'</span>':'')+
+          (e.amount?'<span class="act-amount">'+e.amount+'</span>':'')+
+        '</div>' +
+      '</div>' +
+      '<div class="act-right">' +
+        '<div class="act-by">'+e.by+'</div>' +
+        '<div class="act-time">'+dt+'</div>' +
+      '</div>' +
+    '</div>';
+  }).join('');
+
+  $('activity-list').innerHTML = html;
+}
 
 // Lang toggle
 document.querySelectorAll('.lang-btn').forEach(function(btn) {

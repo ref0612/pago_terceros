@@ -79,6 +79,10 @@
           <span id="header-username" class="header-username"></span>
           <span id="header-role" class="header-role-badge"></span>
         </div>
+        <button id="btn-activity" class="btn-ghost btn-activity" title="Historial" hidden>
+          ⏱ <span data-i18n="btn_activity">Historial</span>
+        </button>
+
         <div class="lang-toggle" id="lang-toggle">
           <button class="lang-btn active" data-lang="es">ES</button>
           <button class="lang-btn" data-lang="en">EN</button>
@@ -165,6 +169,10 @@
           <button class="filter-pill" data-filter="rejected" data-i18n-text="filter_rejected">Rechazado</button>
           <button class="filter-pill" data-filter="paid" data-i18n-text="filter_paid">Pagado</button>
         </div>
+        <button id="btn-approve-all" class="btn-approve-all" hidden>
+          ✓ <span data-i18n="btn_approve_all">Aprobar todos</span>
+        </button>
+
         <label class="toggle-empty">
           <input type="checkbox" id="hide-empty" />
           <span class="toggle-track"></span>
@@ -174,7 +182,32 @@
       <div id="empresarios-list"></div>
     </main>
 
+    <!-- ───── PANEL HISTORIAL ───── -->
+    <div id="activity-panel" class="activity-panel" hidden>
+      <div class="activity-header">
+        <div class="activity-title" data-i18n="activity_title">Historial de actividad</div>
+        <button class="activity-close" id="activity-close">✕</button>
+      </div>
+      <div id="activity-list" class="activity-list">
+        <div class="activity-loading">Cargando…</div>
+      </div>
+    </div>
+    <div id="activity-backdrop" class="activity-backdrop" hidden></div>
+
   </div><!-- /#app -->
+
+  <!-- MODAL RESUMEN SESIÓN -->
+  <div id="session-summary-overlay" class="confirm-overlay" hidden>
+    <div class="confirm-modal">
+      <div class="confirm-icon">📋</div>
+      <div class="confirm-title" id="ss-title">Resumen de sesión</div>
+      <div id="ss-content" style="width:100%;text-align:left"></div>
+      <div class="confirm-btns">
+        <button class="confirm-btn-secondary" id="ss-cancel">Cancelar</button>
+        <button class="confirm-btn-primary btn-red" id="ss-confirm">Cerrar sesión</button>
+      </div>
+    </div>
+  </div>
 
   <!-- ═══════════════════════════════════════
        MODAL DE CONFIRMACIÓN ESTILIZADO
