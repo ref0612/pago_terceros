@@ -984,8 +984,18 @@ function showSessionSummary() {
 
   var totalPaid     = paid.reduce(function(s,x){ return s+x.amount; }, 0);
   var totalApproved = approved.reduce(function(s,x){ return s+x.amount; }, 0);
-  var pendingCount  = state.empresarios.filter(function(emp) {
-    return Object.keys(groupByDay(state.services[emp.ownerCode]||[])).some(function(d){ return getDayStatus(emp.ownerCode,d)==='pending'; });
+  // Para supervisor: días que siguen pendientes (sin aprobar)
+  var stillPendingCount = state.empresarios.filter(function(emp) {
+    return Object.keys(groupByDay(state.services[emp.ownerCode]||[])).some(function(d) {
+      return getDayStatus(emp.ownerCode, d) === 'pending';
+    });
+  }).length;
+
+  // Para contable: días aprobados que aún no han sido depositados
+  var approvedNotPaidCount = state.empresarios.filter(function(emp) {
+    return Object.keys(groupByDay(state.services[emp.ownerCode]||[])).some(function(d) {
+      return getDayStatus(emp.ownerCode, d) === 'approved';
+    });
   }).length;
 
   var html = '<div style="width:100%">';
@@ -993,10 +1003,10 @@ function showSessionSummary() {
   if (state.role === 'supervisor') {
     html += summaryRow('✓ Aprobados hoy', approved.length+' empresarios · '+formatCLP(totalApproved), 'var(--green)');
     html += summaryRow('✕ Rechazados hoy', rejected.length+' empresarios', rejected.length>0?'var(--red)':'var(--text3)');
-    if (pendingCount>0) html += summaryRow('⚠ Pendientes aún', pendingCount+' empresarios sin aprobar', 'var(--yellow)');
+    if (stillPendingCount>0) html += summaryRow('⚠ Pendientes aún', stillPendingCount+' empresarios sin aprobar', 'var(--yellow)');
   } else {
-    html += summaryRow('💳 Depositados hoy', paid.length+' pagos · '+formatCLP(totalPaid), 'var(--blue)');
-    if (pendingCount>0) html += summaryRow('⏳ Aprobados sin depositar', pendingCount+' pendientes', 'var(--yellow)');
+    html += summaryRow('💳 Depositados hoy', paid.length+' pagos · '+formatCLP(totalPaid), paid.length>0?'var(--blue)':'var(--text3)');
+    if (approvedNotPaidCount>0) html += summaryRow('⏳ Aprobados sin depositar', approvedNotPaidCount+' pendientes de depósito', 'var(--yellow)');
   }
 
   if (!approved.length && !paid.length && !rejected.length) {
