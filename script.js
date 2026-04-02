@@ -15,6 +15,8 @@ const COL = {
 /* ─── STATE ──────────────────────────────────────────────── */
 var state = {
   sessionToken: '', role: '', username: '',
+  ownerCode:    '',   // set for empresario role
+  operatorName: '',   // display name for empresario
   dateFrom: todayStr(), dateTo: todayStr(),
   empresarios: [],
   services:    {},  // ownerCode → [rows]
@@ -222,12 +224,19 @@ function loadSession() {
   var t=sessionStorage.getItem('pb_session');
   var r=sessionStorage.getItem('pb_role');
   var u=sessionStorage.getItem('pb_username');
-  if (t&&r){ state.sessionToken=t; state.role=r; state.username=u||''; return true; }
+  if (t&&r){
+    state.sessionToken=t; state.role=r; state.username=u||'';
+    state.ownerCode    = sessionStorage.getItem('pb_ownerCode')    || '';
+    state.operatorName = sessionStorage.getItem('pb_operatorName') || '';
+    return true;
+  }
   return false;
 }
 function clearSession() {
   state.sessionToken=''; state.role=''; state.username='';
-  ['pb_session','pb_role','pb_username'].forEach(function(k){ sessionStorage.removeItem(k); });
+  state.ownerCode=''; state.operatorName='';
+  ['pb_session','pb_role','pb_username','pb_ownerCode','pb_operatorName']
+    .forEach(function(k){ sessionStorage.removeItem(k); });
 }
 
 /* ─── API ────────────────────────────────────────────────── */
@@ -331,6 +340,17 @@ async function fetchActivity() {
   }
 }
 
+/* ─── OPERATORS API ──────────────────────────────────────── */
+async function fetchOperators() {
+  return apiFetch('/api/operators');
+}
+async function createOperator(data) {
+  return apiFetch('/api/operators', { method:'POST', body:JSON.stringify(data) });
+}
+async function deleteOperator(username) {
+  return apiFetch('/api/operators?username='+encodeURIComponent(username), { method:'DELETE' });
+}
+
 async function fetchAramco() {
   try {
     var json = await apiFetch('/api/aramco?from='+state.dateFrom+'&to='+state.dateTo);
@@ -399,7 +419,14 @@ function applyLang(lang) {
 function showLogin(){ hide('app'); show('login-screen'); $('login-user').focus(); }
 
 function showApp() {
-  hide('login-screen'); show('app');
+  hide('login-screen');
+
+  if (state.role === 'empresario') {
+    showEmpresarioView();
+    return;
+  }
+
+  show('app');
 
   // Auto-set today's date
   var today = todayStr();
@@ -412,14 +439,13 @@ function showApp() {
   $('header-role').textContent     = state.role==='supervisor'?t('role_supervisor'):t('role_contable');
   $('header-role').className       = 'header-role-badge '+(state.role==='supervisor'?'role-supervisor':'role-contable');
 
-  // Show role-specific buttons
   var btnApproveAll = $('btn-approve-all');
   var btnActivity   = $('btn-activity');
   if (btnApproveAll) btnApproveAll.hidden = (state.role !== 'supervisor');
   if (btnActivity)   btnActivity.hidden   = false;
+  var btnOpsMain = $('btn-operators');
+  if (btnOpsMain) btnOpsMain.hidden = (state.role !== 'supervisor');
 
-  // Role-based default filter
-  // Supervisor → ver pendientes | Contable → ver aprobados listos para depositar
   var defaultFilter = state.role === 'supervisor' ? 'pending' : 'approved';
   state.filter = defaultFilter;
   document.querySelectorAll('.filter-pill').forEach(function(btn) {
@@ -427,8 +453,6 @@ function showApp() {
   });
 
   resetAppState();
-
-  // Auto-load today's data
   loadData();
 }
 
@@ -451,6 +475,10 @@ async function doLogin() {
     var json=await res.json();
     if (!res.ok||!json.ok) throw new Error(json.error||t('login_err_creds'));
     saveSession(json.token,json.role,username);
+    state.ownerCode    = json.ownerCode    || '';
+    state.operatorName = json.operatorName || '';
+    sessionStorage.setItem('pb_ownerCode',    state.ownerCode);
+    sessionStorage.setItem('pb_operatorName', state.operatorName);
     $('login-pass').value='';
     showApp();
   } catch(err){ showLoginError(err.message); }
@@ -895,6 +923,339 @@ function showPaymentDetail(code, isoDate) {
   );
 }
 
+/* ─── EMPRESARIO VIEW ───────────────────────────────────── */
+function showEmpresarioView() {
+  hide('app');
+  var el = $('empresario-view');
+  if (el) {
+    show('empresario-view');
+    $('ev-name').textContent    = state.operatorName || state.username;
+    $('ev-code').textContent    = state.ownerCode;
+    $('ev-username').textContent= state.username;
+    // set default dates
+    var today = todayStr();
+    $('ev-date-from').value = today;
+    $('ev-date-to').value   = today;
+    state.dateFrom = today;
+    state.dateTo   = today;
+    evLoadData();
+  }
+}
+
+var evData = { services:[], approvals:{}, payments:{}, aramco:{} };
+
+async function evLoadData() {
+  var dateFrom = $('ev-date-from').value || todayStr();
+  var dateTo   = $('ev-date-to').value   || todayStr();
+  if (dateFrom > dateTo) { toast('⚠ FROM date cannot be greater than TO'); return; }
+  state.dateFrom = dateFrom;
+  state.dateTo   = dateTo;
+
+  $('ev-loading').hidden = false;
+  $('ev-content').hidden = true;
+
+  try {
+    // Load approvals, payments, aramco, services in parallel
+    var [apResp, aramResp, svcRows] = await Promise.all([
+      apiFetch('/api/approvals'),
+      apiFetch('/api/aramco?from='+dateFrom+'&to='+dateTo),
+      fetchAllServices(dateFrom, dateTo),
+    ]);
+
+    evData.approvals = apResp.approvals || {};
+    evData.aramco    = aramResp.data    || {};
+    evData.payments  = state.payments;
+
+    // Filter services to this operator only
+    evData.services  = svcRows.filter(function(r) {
+      return (r[COL.razonSocial]||'').trim().toLowerCase() === state.operatorName.trim().toLowerCase()
+        || (r[COL.razonSocial]||'').trim().toLowerCase().includes(state.operatorName.trim().toLowerCase());
+    });
+
+    // Also fetch previous period for comparison
+    var msDay    = 86400000;
+    var diffDays = Math.round((new Date(dateTo) - new Date(dateFrom)) / msDay) + 1;
+    var prevTo   = new Date(new Date(dateFrom) - msDay).toISOString().slice(0,10);
+    var prevFrom = new Date(new Date(prevTo) - (diffDays-1)*msDay).toISOString().slice(0,10);
+
+    var prevRows = await fetchAllServices(prevFrom, prevTo);
+    evData.prevServices = prevRows.filter(function(r) {
+      return (r[COL.razonSocial]||'').trim().toLowerCase().includes(state.operatorName.trim().toLowerCase());
+    });
+    evData.prevFrom = prevFrom;
+    evData.prevTo   = prevTo;
+
+    evRender();
+  } catch(e) {
+    console.error(e);
+    toast('Error loading data: ' + e.message);
+  } finally {
+    $('ev-loading').hidden = true;
+  }
+}
+
+function evGetDayStatus(isoDate) {
+  var k  = approvalKey(state.ownerCode, isoDate);
+  var pm = evData.payments[k];
+  if (pm && pm.status === 'paid') return 'paid';
+  var ap = evData.approvals[k];
+  if (ap) return ap.status;
+  return 'pending';
+}
+
+function evRender() {
+  var rows    = evData.services;
+  var byDay   = groupByDay(rows);
+  var days    = Object.keys(byDay).sort();
+
+  // ── Totals
+  var tProd=0, tCom=0, tNeto=0, tAramco=0, tSeats=0;
+  rows.forEach(function(r) {
+    tProd   += parseMoney(r[COL.produccion]);
+    tCom    += parseMoney(r[COL.comision]);
+    tNeto   += parseMoney(r[COL.totalNeto]);
+    tSeats  += parseInt(r[COL.asientosSuc],10)||0;
+  });
+  days.forEach(function(d) {
+    tAramco += evData.aramco[approvalKey(state.ownerCode,d)] || 0;
+  });
+  var tFinal = tNeto - tAramco;
+
+  // Previous period totals for comparison
+  var prevProd=0, prevNeto=0;
+  (evData.prevServices||[]).forEach(function(r) {
+    prevProd += parseMoney(r[COL.produccion]);
+    prevNeto += parseMoney(r[COL.totalNeto]);
+  });
+
+  // ── Summary cards
+  var prodDiff  = tProd>0&&prevProd>0 ? Math.round((tProd-prevProd)/prevProd*100) : null;
+  var netoDiff  = tFinal>0&&prevNeto>0 ? Math.round((tFinal-prevNeto)/prevNeto*100) : null;
+
+  $('ev-total-prod').textContent  = formatCLP(tProd);
+  $('ev-total-com').textContent   = formatCLP(tCom);
+  $('ev-total-aramco').textContent= tAramco>0 ? formatCLP(tAramco) : '$0';
+  $('ev-total-final').textContent = formatCLP(tFinal);
+  $('ev-total-svc').textContent   = rows.length;
+
+  // Comparison badges
+  function diffBadge(diff) {
+    if (diff===null) return '<span class="ev-diff ev-diff-neutral">—</span>';
+    var sign = diff>=0?'+':'';
+    var cls  = diff>=0?'ev-diff-up':'ev-diff-down';
+    return '<span class="ev-diff '+cls+'">'+sign+diff+'% vs prev</span>';
+  }
+  $('ev-diff-prod').innerHTML  = diffBadge(prodDiff);
+  $('ev-diff-final').innerHTML = diffBadge(netoDiff);
+
+  // ── Status overview (per day)
+  var statusHtml = '';
+  if (!days.length) {
+    statusHtml = '<div class="ev-empty">No services found for this period.</div>';
+  } else {
+    days.forEach(function(d) {
+      var status = evGetDayStatus(d);
+      var ap     = evData.approvals[approvalKey(state.ownerCode,d)];
+      var pm     = evData.payments [approvalKey(state.ownerCode,d)];
+      var dayRows= byDay[d];
+      var ds     = calcStats(dayRows);
+      var aramco = evData.aramco[approvalKey(state.ownerCode,d)] || 0;
+      var final  = ds.neto - aramco;
+
+      var BADGE = { pending:'badge-pending', approved:'badge-approved', rejected:'badge-rejected', paid:'badge-paid' };
+      var LABEL = { pending:'Pending', approved:'Approved', rejected:'Rejected', paid:'Paid' };
+
+      statusHtml +=
+        '<div class="ev-day-row">'+
+          '<div class="ev-day-date">'+toDisplay(d)+'</div>'+
+          '<div class="ev-day-stats">'+
+            '<span><span class="ev-lbl">Prod.</span> '+formatCLP(ds.prod)+'</span>'+
+            '<span class="ev-green"><span class="ev-lbl">Net</span> '+formatCLP(final)+'</span>'+
+            '<span class="ev-blue"><span class="ev-lbl">Svc</span> '+ds.count+'</span>'+
+          '</div>'+
+          '<span class="status-badge status-badge-sm '+BADGE[status]+'">'+LABEL[status]+'</span>'+
+          (status==='paid'&&pm?'<span class="ev-ref">Ref: '+pm.transferRef+'</span>':'')+(status==='approved'&&ap?'<span class="ev-approved-by">✓ '+ap.by+'</span>':'')
+        +'</div>';
+    });
+  }
+  $('ev-status-list').innerHTML = statusHtml;
+
+  // ── Metrics
+  // Bus más utilizado
+  var busCounts = {};
+  rows.forEach(function(r) {
+    var bus = (r[COL.bus]||'?')+' · '+(r[COL.patente]||'');
+    busCounts[bus] = (busCounts[bus]||0)+1;
+  });
+  var topBus = Object.entries(busCounts).sort(function(a,b){ return b[1]-a[1]; })[0];
+  $('ev-metric-bus').textContent = topBus ? topBus[0]+' ('+topBus[1]+' svc)' : '—';
+
+  // Ruta más productiva
+  var routeProd = {};
+  rows.forEach(function(r) {
+    var route = r[COL.origen]+' → '+r[COL.destino];
+    routeProd[route] = (routeProd[route]||0) + parseMoney(r[COL.totalNeto]);
+  });
+  var topRoute = Object.entries(routeProd).sort(function(a,b){ return b[1]-a[1]; })[0];
+  $('ev-metric-route').textContent = topRoute ? topRoute[0]+' ('+formatCLP(topRoute[1])+')' : '—';
+
+  // Promedio asientos
+  var avgSeats = rows.length ? Math.round(tSeats/rows.length) : 0;
+  $('ev-metric-seats').textContent = avgSeats ? avgSeats+' seats/svc' : '—';
+
+  // ── Daily evolution chart
+  evRenderChart(byDay, days);
+
+  $('ev-content').hidden = false;
+}
+
+function evRenderChart(byDay, days) {
+  var canvas = $('ev-chart');
+  if (!canvas || !days.length) return;
+  var ctx    = canvas.getContext('2d');
+  var w      = canvas.offsetWidth || 600;
+  canvas.width  = w;
+  canvas.height = 160;
+
+  var values = days.map(function(d) { return calcStats(byDay[d]).neto; });
+  var maxVal = Math.max.apply(null, values) || 1;
+  var pad    = { t:16, r:16, b:32, l:64 };
+  var cw     = w - pad.l - pad.r;
+  var ch     = canvas.height - pad.t - pad.b;
+  var step   = days.length > 1 ? cw / (days.length-1) : cw;
+
+  ctx.clearRect(0,0,canvas.width,canvas.height);
+
+  // Grid lines
+  ctx.strokeStyle = '#e5e7eb';
+  ctx.lineWidth   = 1;
+  [0,.25,.5,.75,1].forEach(function(f) {
+    var y = pad.t + ch * (1-f);
+    ctx.beginPath(); ctx.moveTo(pad.l,y); ctx.lineTo(pad.l+cw,y); ctx.stroke();
+    ctx.fillStyle = '#94a3b8';
+    ctx.font      = '10px DM Sans, sans-serif';
+    ctx.textAlign = 'right';
+    ctx.fillText(formatCLP(maxVal*f).replace('$','$'), pad.l-6, y+3);
+  });
+
+  // Area fill
+  var pts = values.map(function(v,i) {
+    return { x: pad.l + i*step, y: pad.t + ch*(1 - v/maxVal) };
+  });
+  ctx.beginPath();
+  ctx.moveTo(pts[0].x, pad.t+ch);
+  pts.forEach(function(p) { ctx.lineTo(p.x, p.y); });
+  ctx.lineTo(pts[pts.length-1].x, pad.t+ch);
+  ctx.closePath();
+  var grad = ctx.createLinearGradient(0,pad.t,0,pad.t+ch);
+  grad.addColorStop(0,'rgba(16,185,129,.25)');
+  grad.addColorStop(1,'rgba(16,185,129,.02)');
+  ctx.fillStyle = grad;
+  ctx.fill();
+
+  // Line
+  ctx.beginPath();
+  ctx.strokeStyle = '#10b981';
+  ctx.lineWidth   = 2.5;
+  ctx.lineJoin    = 'round';
+  pts.forEach(function(p,i){ i===0?ctx.moveTo(p.x,p.y):ctx.lineTo(p.x,p.y); });
+  ctx.stroke();
+
+  // Dots + labels
+  pts.forEach(function(p,i) {
+    ctx.beginPath();
+    ctx.arc(p.x,p.y,3.5,0,Math.PI*2);
+    ctx.fillStyle = '#10b981';
+    ctx.fill();
+    // X axis date label
+    ctx.fillStyle = '#94a3b8';
+    ctx.font      = '9px DM Sans, sans-serif';
+    ctx.textAlign = 'center';
+    ctx.fillText(toDisplay(days[i]).slice(0,5), p.x, pad.t+ch+18);
+  });
+}
+
+/* ─── OPERATOR MANAGEMENT PANEL ─────────────────────────── */
+async function showOperatorPanel() {
+  $('operator-panel').hidden    = false;
+  $('operator-backdrop').hidden = false;
+  $('op-list').innerHTML = '<div class="activity-loading">Loading…</div>';
+  $('op-error').hidden   = true;
+
+  try {
+    var json = await fetchOperators();
+    var ops  = json.operators || [];
+    if (!ops.length) {
+      $('op-list').innerHTML = '<div class="activity-empty">No operator accounts yet.</div>';
+      return;
+    }
+    $('op-list').innerHTML = ops.map(function(op) {
+      return '<div class="op-row">'+
+        '<div class="op-info">'+
+          '<div class="op-name">'+op.name+'</div>'+
+          '<div class="op-meta">'+
+            '<span class="op-code">'+op.ownerCode+'</span>'+
+            '<span class="op-user">@'+op.username+'</span>'+
+          '</div>'+
+        '</div>'+
+        '<button class="op-del-btn" data-username="'+op.username+'">Remove</button>'+
+      '</div>';
+    }).join('');
+
+    // Delete handlers
+    $('op-list').querySelectorAll('.op-del-btn').forEach(function(btn) {
+      btn.addEventListener('click', function() {
+        var uname = btn.dataset.username;
+        showModal({
+          icon:'✕', iconClass:'icon-reject',
+          title:'Remove operator access',
+          detail:'Remove login access for <strong>@'+uname+'</strong>? They will no longer be able to sign in.',
+          confirmText:'Remove', confirmClass:'btn-red', danger:true,
+          onConfirm: async function() {
+            try {
+              await deleteOperator(uname);
+              showOperatorPanel();
+              toast('✓ @'+uname+' removed');
+            } catch(e) { toastError('Error: '+e.message); }
+          }
+        });
+      });
+    });
+  } catch(e) {
+    $('op-list').innerHTML = '';
+    $('op-error').textContent = 'Error: '+e.message;
+    $('op-error').hidden = false;
+  }
+}
+
+async function handleCreateOperator() {
+  var username  = $('op-new-user').value.trim();
+  var password  = $('op-new-pass').value.trim();
+  var ownerCode = $('op-new-code').value.trim().toUpperCase();
+  var name      = $('op-new-name').value.trim();
+  $('op-error').hidden = true;
+
+  if (!username||!password||!ownerCode) {
+    $('op-error').textContent = 'Username, password and ENT code are required.';
+    $('op-error').hidden = false;
+    return;
+  }
+  if (!/^ENT-\d+$/.test(ownerCode)) {
+    $('op-error').textContent = 'ENT code must match format ENT-XXXXX';
+    $('op-error').hidden = false;
+    return;
+  }
+  try {
+    await createOperator({ username, password, ownerCode, name });
+    $('op-new-user').value=$('op-new-pass').value=$('op-new-code').value=$('op-new-name').value='';
+    showOperatorPanel();
+    toast('✓ Operator @'+username+' created');
+  } catch(e) {
+    $('op-error').textContent = 'Error: '+e.message;
+    $('op-error').hidden = false;
+  }
+}
+
 /* ─── PERSIST ────────────────────────────────────────────── */
 function savePayments() {
   try { localStorage.setItem('pb_payments_v2', JSON.stringify(state.payments)); } catch(e){}
@@ -956,7 +1317,14 @@ $('login-btn').addEventListener('click', doLogin);
 });
 
 $('btn-logout').addEventListener('click', function(){
-  showSessionSummary();
+  if (state.role === 'empresario') {
+    // Empresario: simple logout, no summary
+    clearSession();
+    hide('empresario-view');
+    showLogin();
+  } else {
+    showSessionSummary();
+  }
 });
 
 function showSessionSummary() {
@@ -1150,6 +1518,168 @@ async function showActivityPanel() {
   }).join('');
 
   $('activity-list').innerHTML = html;
+}
+
+/* ─── OPERATOR PANEL BUTTON ─────────────────────────────── */
+var btnOps = $('btn-operators');
+if (btnOps) {
+  btnOps.addEventListener('click', showOperatorPanel);
+}
+var opClose    = $('operator-close');
+var opBackdrop = $('operator-backdrop');
+if (opClose)    opClose.addEventListener('click',    function(){ $('operator-panel').hidden=true; $('operator-backdrop').hidden=true; });
+if (opBackdrop) opBackdrop.addEventListener('click', function(){ $('operator-panel').hidden=true; $('operator-backdrop').hidden=true; });
+
+// Show operators button for supervisor only
+if (state.role === 'supervisor' && btnOps) btnOps.hidden = false;
+
+/* ─── PDF DOWNLOAD ───────────────────────────────────────── */
+function evDownloadPDF() {
+  if (typeof jspdf === 'undefined' && typeof window.jspdf === 'undefined') {
+    toast('PDF library not loaded. Try refreshing the page.'); return;
+  }
+  var { jsPDF } = window.jspdf || jspdf;
+  var doc = new jsPDF({ orientation:'portrait', unit:'mm', format:'a4' });
+  var rows = evData.services;
+  var byDay= groupByDay(rows);
+  var days = Object.keys(byDay).sort();
+
+  var tProd=0,tCom=0,tNeto=0,tAramco=0;
+  rows.forEach(function(r){
+    tProd  += parseMoney(r[COL.produccion]);
+    tCom   += parseMoney(r[COL.comision]);
+    tNeto  += parseMoney(r[COL.totalNeto]);
+  });
+  days.forEach(function(d){ tAramco += evData.aramco[approvalKey(state.ownerCode,d)]||0; });
+  var tFinal = tNeto - tAramco;
+
+  // ── Header
+  doc.setFillColor(255,92,96);
+  doc.rect(0,0,210,22,'F');
+  doc.setTextColor(255,255,255);
+  doc.setFontSize(14); doc.setFont('helvetica','bold');
+  doc.text('PULLMAN BUS', 14, 10);
+  doc.setFontSize(9); doc.setFont('helvetica','normal');
+  doc.text('Operator Payment Statement', 14, 16);
+  doc.text('Printed: '+new Date().toLocaleDateString('en-GB'), 196, 16, { align:'right' });
+
+  // ── Operator info
+  doc.setTextColor(15,23,42);
+  doc.setFontSize(11); doc.setFont('helvetica','bold');
+  doc.text(state.operatorName || state.username, 14, 32);
+  doc.setFontSize(9); doc.setFont('helvetica','normal');
+  doc.setTextColor(100,116,139);
+  doc.text(state.ownerCode, 14, 37);
+  doc.text('Period: '+toDisplay(state.dateFrom)+' → '+toDisplay(state.dateTo), 14, 42);
+
+  // ── Financial summary box
+  doc.setFillColor(248,250,252);
+  doc.roundedRect(14,48,182,38,2,2,'F');
+  doc.setDrawColor(229,231,235);
+  doc.roundedRect(14,48,182,38,2,2,'S');
+
+  var cols = [
+    { label:'Gross Production', value:formatCLP(tProd), color:[15,23,42] },
+    { label:'Commission',       value:formatCLP(tCom),  color:[239,68,68] },
+    { label:'Fuel (Aramco)',    value:formatCLP(tAramco),color:[239,68,68] },
+    { label:'TOTAL TO RECEIVE', value:formatCLP(tFinal),color:[16,185,129] },
+  ];
+  cols.forEach(function(col,i) {
+    var x = 14 + i*46;
+    doc.setFontSize(7); doc.setFont('helvetica','bold'); doc.setTextColor(148,163,184);
+    doc.text(col.label.toUpperCase(), x+2, 57);
+    doc.setFontSize(11); doc.setFont('helvetica','bold'); doc.setTextColor.apply(doc, col.color);
+    doc.text(col.value, x+2, 65);
+    // Services count on last col
+    if (i===3) {
+      doc.setFontSize(7); doc.setTextColor(100,116,139);
+      doc.text(rows.length+' services', x+2, 71);
+    }
+  });
+
+  // ── Status by day
+  doc.setTextColor(15,23,42);
+  doc.setFontSize(10); doc.setFont('helvetica','bold');
+  doc.text('Payment Status', 14, 96);
+  doc.setDrawColor(229,231,235); doc.line(14,99,196,99);
+
+  var y = 105;
+  var STATUS_COLORS = { paid:[59,130,246], approved:[16,185,129], rejected:[239,68,68], pending:[245,158,11] };
+  days.forEach(function(d) {
+    var status = evGetDayStatus(d);
+    var pm     = evData.payments[approvalKey(state.ownerCode,d)];
+    var ds     = calcStats(byDay[d]);
+    var aramco = evData.aramco[approvalKey(state.ownerCode,d)]||0;
+    var final  = ds.neto - aramco;
+
+    doc.setFontSize(9); doc.setFont('helvetica','normal'); doc.setTextColor(15,23,42);
+    doc.text(toDisplay(d), 14, y);
+    doc.text(ds.count+' svc', 60, y);
+    doc.text('Prod: '+formatCLP(ds.prod), 80, y);
+    doc.text('Net: '+formatCLP(final), 130, y);
+
+    // Status pill
+    var sc = STATUS_COLORS[status]||[100,116,139];
+    doc.setFillColor(sc[0],sc[1],sc[2]);
+    doc.roundedRect(168,y-5,24,7,1,1,'F');
+    doc.setTextColor(255,255,255); doc.setFontSize(7); doc.setFont('helvetica','bold');
+    doc.text(status.charAt(0).toUpperCase()+status.slice(1), 180, y, { align:'center' });
+
+    if (status==='paid'&&pm) {
+      doc.setFontSize(7); doc.setFont('helvetica','normal'); doc.setTextColor(100,116,139);
+      doc.text('Ref: '+pm.transferRef, 14, y+5);
+      y += 5;
+    }
+    y += 8;
+    if (y > 260) { doc.addPage(); y = 20; }
+  });
+
+  // ── Services table
+  if (y > 230) { doc.addPage(); y = 20; }
+  y += 4;
+  doc.setFontSize(10); doc.setFont('helvetica','bold'); doc.setTextColor(15,23,42);
+  doc.text('Service Detail', 14, y); y += 6;
+  doc.setDrawColor(229,231,235); doc.line(14,y,196,y); y += 5;
+
+  // Table header
+  doc.setFillColor(248,250,252);
+  doc.rect(14,y-4,182,7,'F');
+  doc.setFontSize(7); doc.setFont('helvetica','bold'); doc.setTextColor(100,116,139);
+  ['Date','Time','Origin → Dest','Bus','Status','Seats','Net Total'].forEach(function(h,i) {
+    var xs = [14,34,50,106,126,146,162];
+    doc.text(h, xs[i], y);
+  });
+  y += 6;
+  doc.setFont('helvetica','normal'); doc.setTextColor(15,23,42);
+
+  rows.slice(0,40).forEach(function(r) { // max 40 rows in PDF
+    if (y > 270) { doc.addPage(); y = 20; }
+    doc.setFontSize(7);
+    var dest = (r[COL.origen]||'')+'→'+(r[COL.destino]||'');
+    doc.text(r[COL.fecha]||'', 14, y);
+    doc.text(r[COL.hora]||'', 34, y);
+    doc.text(dest.substring(0,24), 50, y);
+    doc.text((r[COL.bus]||''), 106, y);
+    doc.text((r[COL.estado]||'').substring(0,10), 126, y);
+    doc.text(String(r[COL.asientosSuc]||0), 146, y);
+    doc.text(r[COL.totalNeto]||'$0', 162, y);
+    y += 5;
+  });
+  if (rows.length > 40) {
+    doc.setFontSize(7); doc.setTextColor(100,116,139);
+    doc.text('... and '+(rows.length-40)+' more services', 14, y+2);
+  }
+
+  // ── Footer
+  var pages = doc.internal.getNumberOfPages();
+  for (var i=1; i<=pages; i++) {
+    doc.setPage(i);
+    doc.setFontSize(7); doc.setTextColor(148,163,184);
+    doc.text('Pullman Bus · Confidential · Page '+i+'/'+pages, 105, 290, { align:'center' });
+  }
+
+  doc.save('PullmanBus_'+state.ownerCode+'_'+state.dateFrom+'_to_'+state.dateTo+'.pdf');
+  toast('✓ PDF downloaded');
 }
 
 // Lang toggle

@@ -82,6 +82,9 @@
         <button id="btn-activity" class="btn-ghost btn-activity" title="Historial" hidden>
           ⏱ <span data-i18n="btn_activity">Historial</span>
         </button>
+        <button id="btn-operators" class="btn-ghost" title="Operator Accounts" hidden>
+          👥 Operators
+        </button>
 
         <div class="lang-toggle" id="lang-toggle">
           <button class="lang-btn active" data-lang="es">ES</button>
@@ -242,7 +245,158 @@
     </div>
   </div>
 
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
   <script src="i18n.js"></script>
+  <!-- ═══════════════════════════════════════
+       EMPRESARIO VIEW
+  ════════════════════════════════════════ -->
+  <div id="empresario-view" hidden>
+
+    <!-- Header -->
+    <header class="app-header ev-header">
+      <div class="header-brand">
+        <div class="brand-mark">PB</div>
+        <div>
+          <div class="brand-name">Pullman Bus</div>
+          <div class="brand-sub">Operator Portal</div>
+        </div>
+      </div>
+      <div class="ev-identity">
+        <div class="ev-identity-name" id="ev-name">—</div>
+        <div class="ev-identity-code" id="ev-code">—</div>
+      </div>
+      <div class="header-controls">
+        <div class="control-group">
+          <label class="control-label">FROM</label>
+          <input type="date" id="ev-date-from" class="date-input" />
+        </div>
+        <div class="control-group">
+          <label class="control-label">TO</label>
+          <input type="date" id="ev-date-to" class="date-input" />
+        </div>
+        <button class="btn-primary" onclick="evLoadData()">
+          <span class="btn-icon">⟳</span> Load
+        </button>
+        <button class="btn-primary ev-pdf-btn" onclick="evDownloadPDF()">
+          ⬇ PDF
+        </button>
+        <button id="btn-logout" class="btn-ghost">⎋ Sign out</button>
+      </div>
+    </header>
+
+    <!-- Loading -->
+    <div id="ev-loading" class="state-box" hidden>
+      <div class="loader-ring"></div>
+      <div class="state-title">Loading your data…</div>
+    </div>
+
+    <!-- Content -->
+    <div id="ev-content" hidden>
+
+      <!-- Summary cards -->
+      <div class="ev-summary">
+        <div class="ev-card">
+          <div class="ev-card-label">GROSS PRODUCTION</div>
+          <div class="ev-card-value" id="ev-total-prod">$0</div>
+          <div id="ev-diff-prod"></div>
+        </div>
+        <div class="ev-card">
+          <div class="ev-card-label">COMMISSION</div>
+          <div class="ev-card-value ev-card-red" id="ev-total-com">$0</div>
+        </div>
+        <div class="ev-card">
+          <div class="ev-card-label">FUEL (ARAMCO)</div>
+          <div class="ev-card-value ev-card-red" id="ev-total-aramco">$0</div>
+        </div>
+        <div class="ev-card ev-card-highlight">
+          <div class="ev-card-label">TOTAL TO RECEIVE</div>
+          <div class="ev-card-value ev-card-green" id="ev-total-final">$0</div>
+          <div id="ev-diff-final"></div>
+        </div>
+        <div class="ev-card">
+          <div class="ev-card-label">SERVICES</div>
+          <div class="ev-card-value ev-card-blue" id="ev-total-svc">0</div>
+        </div>
+      </div>
+
+      <!-- Two column layout -->
+      <div class="ev-body">
+
+        <!-- Left: Status by day -->
+        <div class="ev-panel">
+          <div class="ev-panel-title">Payment Status by Day</div>
+          <div id="ev-status-list"></div>
+        </div>
+
+        <!-- Right: Metrics + Chart -->
+        <div class="ev-right-col">
+
+          <!-- Metrics -->
+          <div class="ev-panel ev-metrics">
+            <div class="ev-panel-title">Period Metrics</div>
+            <div class="ev-metric-row">
+              <span class="ev-metric-icon">🚌</span>
+              <div class="ev-metric-body">
+                <div class="ev-metric-label">Most used bus</div>
+                <div class="ev-metric-value" id="ev-metric-bus">—</div>
+              </div>
+            </div>
+            <div class="ev-metric-row">
+              <span class="ev-metric-icon">🗺</span>
+              <div class="ev-metric-body">
+                <div class="ev-metric-label">Most productive route</div>
+                <div class="ev-metric-value" id="ev-metric-route">—</div>
+              </div>
+            </div>
+            <div class="ev-metric-row">
+              <span class="ev-metric-icon">💺</span>
+              <div class="ev-metric-body">
+                <div class="ev-metric-label">Avg seats sold / service</div>
+                <div class="ev-metric-value" id="ev-metric-seats">—</div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Daily chart -->
+          <div class="ev-panel ev-chart-panel">
+            <div class="ev-panel-title">Daily Net Revenue</div>
+            <canvas id="ev-chart" style="width:100%;height:160px"></canvas>
+          </div>
+
+        </div>
+      </div>
+
+    </div><!-- /ev-content -->
+  </div><!-- /empresario-view -->
+
+  <!-- ═══════════════════════════════════════
+       OPERATOR MANAGEMENT PANEL (Supervisor)
+  ════════════════════════════════════════ -->
+  <div id="operator-panel" class="activity-panel" hidden>
+    <div class="activity-header">
+      <div class="activity-title">Operator Accounts</div>
+      <button class="activity-close" id="operator-close">✕</button>
+    </div>
+
+    <!-- Create form -->
+    <div class="op-create-form">
+      <div class="op-form-title">Add operator account</div>
+      <div class="op-form-grid">
+        <input id="op-new-user" class="form-input" placeholder="username" autocomplete="off" />
+        <input id="op-new-pass" class="form-input" placeholder="password" type="password" />
+        <input id="op-new-code" class="form-input" placeholder="ENT-XXXXX" autocomplete="off" />
+        <input id="op-new-name" class="form-input" placeholder="Full name" autocomplete="off" />
+      </div>
+      <div id="op-error" class="op-error" hidden></div>
+      <button class="btn-primary" style="width:100%;justify-content:center;margin-top:8px"
+              onclick="handleCreateOperator()">Create account</button>
+    </div>
+
+    <div class="op-divider"></div>
+    <div id="op-list" class="activity-list"></div>
+  </div>
+  <div id="operator-backdrop" class="activity-backdrop" hidden></div>
+
   <script src="script.js"></script>
 </body>
 </html>

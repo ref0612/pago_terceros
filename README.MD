@@ -1,222 +1,266 @@
-# Pullman Bus · Pago Empresarios — Deploy en Vercel
+# Pullman Bus · Operator Payment Dashboard
+
+Web dashboard for managing and processing commission payments to bus operators.  
+Built with Vanilla JS + Vercel Serverless Functions + Upstash Redis.
+
+**Live:** https://pago-terceros.vercel.app  
+**Repo:** https://github.com/ref0612/pago_terceros
 
 ---
 
-## Estructura de archivos (exacta)
+## Project Structure
 
 ```
-pullman-dashboard/
-├── index.html
-├── script.js
-├── style.css
-├── api/
-│   ├── auth.js
-│   └── proxy.js
-├── vercel.json
-├── .gitignore          ← renombrar gitignore.txt → .gitignore
-└── .env.example        ← renombrar env.example → .env.example
+pago_terceros/
+├── index.html          ← Full UI (login + app)
+├── script.js           ← Frontend logic (~1100 lines)
+├── i18n.js             ← ES / EN translations
+├── style.css           ← PasajeBus Finance theme (light, DM Sans)
+├── package.json
+├── vercel.json         ← Vercel config + security headers
+├── .env.example        ← Environment variables template
+├── .gitignore
+└── api/
+    ├── auth.js         ← POST /api/auth → issues JWT with role
+    ├── proxy.js        ← GET  /api/proxy → secure forward to Konnect Pro
+    ├── approvals.js    ← GET/POST /api/approvals → Upstash Redis
+    ├── activity.js     ← GET/POST /api/activity → action log
+    └── aramco.js       ← GET /api/aramco → stub ready to connect
 ```
-
-> ⚠️ La carpeta `api/` debe estar en la raíz del proyecto.
-> Vercel la detecta automáticamente y convierte cada .js en una serverless function.
 
 ---
 
-## PASO 1 — Preparar archivos locales
+## Environment Variables
 
-1. Descarga todos los archivos
-2. Crea la carpeta `pullman-dashboard/`
-3. Dentro crea la subcarpeta `api/`
-4. Coloca los archivos así:
+Set in Vercel → Settings → Environment Variables:
 
-```
-pullman-dashboard/
-├── index.html        ← aquí
-├── script.js         ← aquí
-├── style.css         ← aquí
-├── vercel.json       ← aquí
-├── api/
-│   ├── auth.js       ← aquí
-│   └── proxy.js      ← aquí
-```
+| Variable | Description | Required |
+|---|---|---|
+| `APP_SECRET` | JWT signing secret — generate with `node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"` | ✅ |
+| `SUPERVISOR_USER` | Supervisor login username | ✅ |
+| `SUPERVISOR_PASS` | Supervisor login password | ✅ |
+| `CONTABLE_USER` | Accountant login username | ✅ |
+| `CONTABLE_PASS` | Accountant login password | ✅ |
+| `KONNECT_BEARER_TOKEN` | Konnect Pro bearer token | ✅ |
+| `KONNECT_API_KEY` | `QHH79qF2fsWEx98pvNeZpQ` | ✅ |
+| `UPSTASH_REDIS_REST_URL` | Auto-injected when connecting Upstash in Vercel Storage | ✅ |
+| `UPSTASH_REDIS_REST_TOKEN` | Auto-injected when connecting Upstash in Vercel Storage | ✅ |
+| `ARAMCO_API_URL` | Aramco API base URL — leave empty until available | ⏳ |
+| `ARAMCO_API_TOKEN` | Aramco API token — leave empty until available | ⏳ |
+| `APP_USER` / `APP_PASS` | Legacy — treated as accountant role (backwards compatibility) | — |
 
-5. Renombra los archivos especiales:
-   - `gitignore.txt`  →  `.gitignore`
-   - `env.example`    →  `.env.example`
-
----
-
-## PASO 2 — Generar el APP_SECRET
-
-Abre una terminal y ejecuta:
+### Generate APP_SECRET
 
 ```bash
 node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"
 ```
 
-Copia el resultado (64 caracteres hex). Lo necesitarás en el Paso 5.
+---
 
-Ejemplo de output:
+## Initial Setup
+
+### 1. Connect Upstash Redis in Vercel
+
+1. Vercel → your project → **Storage** tab
+2. Click **Create Database** → **Upstash** → **Upstash for Redis**
+3. Name: `pullman-approvals` → **Create**
+4. Connect to project → Vercel automatically injects `UPSTASH_REDIS_REST_URL` and `UPSTASH_REDIS_REST_TOKEN`
+5. **Redeploy** for the variables to take effect
+
+### 2. Add remaining environment variables
+
+Vercel → Settings → Environment Variables → add each variable from the table above.
+
+### 3. Redeploy
+
+Deployments → latest deploy → `···` → **Redeploy**
+
+---
+
+## Security Architecture
+
 ```
-a3f8c2d1e4b70923f1d6e5c8b2a14d7e9f03c2b1a8e5d4c7b6a3f2e1d0c9b8a7
+BROWSER → /api/auth          → HS256 JWT, 8h duration, includes role
+BROWSER → /api/proxy?path=…  → forwards to Konnect (API keys never reach the browser)
+BROWSER → /api/approvals     → read/write to Upstash Redis
+BROWSER → /api/activity      → action log in Upstash Redis
+BROWSER → /api/aramco        → stub / real API when available
+```
+
+- Konnect bearer token is **never** exposed to the browser
+- JWT signed with `APP_SECRET`, validated on every endpoint
+- Path whitelist on proxy (anti-SSRF)
+- Only supervisors can POST to `/api/approvals`
+
+---
+
+## Roles & Approval Flow
+
+### Supervisor
+- On login: automatically loads **today's pending payments**
+- Can **approve** or **reject** per day per operator
+- Can **approve all** pending items in the current range with one click
+- Sees urgency badge ⚠ when there are overdue days awaiting approval
+- On logout: session summary showing approvals/rejections for the day
+
+### Accountant
+- On login: automatically loads **approved payments ready to deposit**
+- Can **deposit** per day (requires transfer reference number) or by full range
+- Receipt is saved and clickable to view full details
+- On logout: session summary showing deposits made and any pending items
+
+### Day-level States
+
+```
+pending → approved → paid
+         ↘ rejected → (can return to pending via re-approval)
 ```
 
 ---
 
-## PASO 3 — Subir a GitHub
+## Data Structures (Upstash Redis)
+
+### Approvals — key: `pullman_approvals_v2`
+
+```json
+{
+  "ENT-03041__2026-03-23": { "status": "approved", "by": "supervisor", "at": "ISO" },
+  "ENT-03041__2026-03-24": { "status": "rejected", "by": "supervisor", "at": "ISO" }
+}
+```
+
+### Activity Log — key: `pullman_activity_v1`
+
+```json
+[
+  {
+    "action": "approved",
+    "code": "ENT-03041",
+    "isoDate": "2026-03-23",
+    "amount": "$71,750",
+    "name": "Patricio Aguilera Torres",
+    "by": "supervisor",
+    "role": "supervisor",
+    "at": "2026-03-23T14:30:00.000Z"
+  }
+]
+```
+
+Max 500 entries (circular buffer).
+
+### Payments — browser `localStorage` key: `pb_payments_v2`
+
+```json
+{
+  "ENT-03041__2026-03-23": {
+    "status": "paid",
+    "transferRef": "123456789",
+    "name": "Patricio Aguilera Torres",
+    "amount": "$71,750",
+    "amountKonnect": "$71,750",
+    "amountAramco": "$0",
+    "date": "2026-03-23",
+    "by": "contable",
+    "approvedBy": "supervisor",
+    "at": "2026-03-23T16:00:00.000Z",
+    "rangeDeposit": false
+  }
+}
+```
+
+> ⚠️ Payments are stored in the browser's localStorage. For cross-device persistence in production, migrate to Upstash using the same pattern as `approvals.js`.
+
+---
+
+## Konnect Pro Endpoints (via proxy)
+
+| Endpoint | Purpose |
+|---|---|
+| `GET /api/v2/users?page=N&items=25&filter_user_type=1&filter_user_type=3` | Paginated list of operators (ENT-XXXXX) |
+| `GET /api/v2/reports/render_report/1532?page_limit=0-500&date_range=4&from_date=DD/MM/YYYY&to_date=DD/MM/YYYY&date_wise=1` | Services within a date range |
+
+**Critical parameters:**
+- `date_range=4` — fixed value, activates date-filter mode (does NOT represent number of days)
+- `from_date` / `to_date` — `DD/MM/YYYY` format, no double-encoding
+- `page_limit=0-500` — row index range, fetches up to 500 in one request
+- Auto-paginates if `total_records_count > 500`
+
+---
+
+## Financial Formula
+
+```
+Final Total = totalNeto (Konnect) − Aramco
+```
+
+- `totalNeto` from Konnect already has commission and expenses deducted
+- **Expenses (Gastos):** pending Konnect column — uncomment in `COL` and `calcStats()` once Konnect adds it
+- **Aramco:** per operator per day from external API — connect via `api/aramco.js`
+
+### Column Map (`COL` in script.js)
+
+```js
+{ fecha:0, hora:1, origen:2, destino:3, ruta:4, servicio:5, estado:6,
+  bus:7, patente:8, totalAsientos:9, rut:10, razonSocial:11,
+  asientosSuc:12, recaudSuc:13, asientosCam:14, recaudCam:15,
+  produccion:16, comision:17, totalNeto:18 }
+// gastos: pending index — uncomment when Konnect adds the column
+```
+
+---
+
+## Pending Dev Tasks
+
+### Aramco API integration
+1. Add `ARAMCO_API_URL` and `ARAMCO_API_TOKEN` to Vercel environment variables
+2. Edit `api/aramco.js` at the section marked `TODO`
+3. Expected API contract:
+   ```json
+   [{ "ownerCode": "ENT-XXXXX", "date": "YYYY-MM-DD", "amount": 12500 }]
+   ```
+
+### Konnect expenses column
+When Konnect adds the expenses column to `data_body`:
+1. Set the column index in `COL.gastos` in `script.js`
+2. Uncomment `gastos += parseMoney(r[COL.gastos])` in `calcStats()`
+
+### Persistent payments (cross-device)
+Deposits are currently stored in browser localStorage. To support multiple devices in production:
+- Create a new Upstash key `pullman_payments_v2`
+- Build a `api/payments.js` endpoint following the same pattern as `approvals.js`
+
+---
+
+## Internationalization (ES / EN)
+
+The `ES | EN` toggle in the header switches the entire UI language instantly.
+The selected language is persisted in `localStorage`.
+
+To add a new language:
+1. Add a translations object in `i18n.js` under `TRANSLATIONS`
+2. Add a `.lang-btn` button in `index.html`
+
+---
+
+## Common Errors
+
+| Error | Cause | Fix |
+|---|---|---|
+| `KV not configured` | Upstash not connected to project | See Setup → step 1 |
+| `Session invalid or expired` | JWT expired (8h) or `APP_SECRET` changed | Log in again |
+| `Incorrect credentials` | Typo or extra spaces in env vars | Check vars in Vercel → Settings → Environment Variables |
+| Infinite spinner on load | Konnect bearer token expired | Get new token from Konnect Pro, update `KONNECT_BEARER_TOKEN`, redeploy |
+| Approvals not saving | Upstash write failed | Check `UPSTASH_REDIS_REST_URL` and `UPSTASH_REDIS_REST_TOKEN` |
+
+---
+
+## Rotating Credentials
+
+If you suspect a leak:
 
 ```bash
-# Entrar a la carpeta
-cd pullman-dashboard
-
-# Inicializar git
-git init
-
-# Agregar todos los archivos
-git add .
-
-# Primer commit
-git commit -m "feat: pago empresarios dashboard v2"
-```
-
-Ahora ve a [github.com](https://github.com) y:
-1. Click en **"New repository"**
-2. Nombre: `pullman-dashboard` (o el que prefieras)
-3. Visibilidad: **Private** ✅
-4. **NO** marcar "Add a README file"
-5. Click **"Create repository"**
-
-GitHub te mostrará comandos. Ejecuta los de "push an existing repository":
-
-```bash
-git remote add origin https://github.com/TU_USUARIO/pullman-dashboard.git
-git branch -M main
-git push -u origin main
-```
-
----
-
-## PASO 4 — Crear proyecto en Vercel
-
-1. Ve a [vercel.com](https://vercel.com) e inicia sesión
-2. Click en **"Add New..."** → **"Project"**
-3. En "Import Git Repository" busca `pullman-dashboard` y click **"Import"**
-4. En la pantalla de configuración:
-   - **Framework Preset:** `Other`  
-   - **Root Directory:** `.` (dejar por defecto)
-   - **Build Command:** *(dejar completamente vacío)*
-   - **Output Directory:** *(dejar completamente vacío)*
-   - **Install Command:** *(dejar completamente vacío)*
-
-⛔ **No hacer click en Deploy todavía** — primero agregar las variables de entorno.
-
----
-
-## PASO 5 — Agregar variables de entorno en Vercel
-
-En la misma pantalla de configuración, busca la sección **"Environment Variables"** y agrega estas 6 variables una por una:
-
-| Nombre                  | Valor                                          |
-|-------------------------|------------------------------------------------|
-| `APP_USER`              | El usuario de login (ej: `contabilidad`)       |
-| `APP_PASS`              | Una contraseña segura (ej: `Pullman#2026!`)    |
-| `APP_SECRET`            | El hex de 64 chars generado en el Paso 2       |
-| `KONNECT_BEARER_TOKEN`  | El Bearer token completo de Konnect Pro        |
-| `KONNECT_API_KEY`       | `QHH79qF2fsWEx98pvNeZpQ`                      |
-| `NODE_ENV`              | `production`                                   |
-
-Para cada variable:
-1. Escribe el nombre en el campo "Name"
-2. Pega el valor en el campo "Value"
-3. Asegúrate que esté marcado: ✅ Production ✅ Preview ✅ Development
-4. Click **"Add"**
-
----
-
-## PASO 6 — Deploy
-
-Click en el botón **"Deploy"**.
-
-Vercel mostrará los logs en tiempo real. El build exitoso se ve así:
-
-```
-✓ Running "vercel build"
-✓ Building...
-✓ Deploying...
-✓ Production deployment available at: https://pullman-dashboard-xxx.vercel.app
-```
-
-Si el deploy falla, ver sección "Errores comunes" al final.
-
----
-
-## PASO 7 — Verificar que funciona
-
-### 7.1 Probar el login
-1. Abre la URL de Vercel
-2. Ingresa el usuario y contraseña que pusiste en `APP_USER` / `APP_PASS`
-3. Debes ver el dashboard
-
-### 7.2 Verificar que las keys NO están expuestas
-1. En el dashboard, abre DevTools (F12)
-2. Ve a la pestaña **"Sources"** (o "Fuentes")
-3. Abre `script.js`
-4. Busca (Ctrl+F): `Bearer`, `KONNECT`, `QHH79`, `api-key`
-5. ✅ No debe aparecer ninguna de estas cadenas
-
-### 7.3 Verificar el proxy
-1. Ve a la pestaña **"Network"** en DevTools
-2. Haz click en "Cargar" en el dashboard
-3. Observa los requests — deben ir a `/api/proxy?path=...`
-4. Click en cualquier request → Headers
-5. ✅ NO debe aparecer `authorization: Bearer ...` ni `x-api-key` en los request headers del navegador
-
----
-
-## PASO 8 — Dominio personalizado (opcional)
-
-En Vercel → tu proyecto → **"Settings"** → **"Domains"**:
-1. Agregar tu dominio (ej: `pagos.pullmanbus.cl`)
-2. Seguir las instrucciones para configurar DNS
-3. Actualizar la variable `ALLOWED_ORIGINS` con el nuevo dominio
-
----
-
-## Errores comunes y soluciones
-
-### ❌ "Build failed" en Vercel
-**Causa:** El `vercel.json` tiene algún error de sintaxis.  
-**Solución:** Verifica que el archivo no fue modificado. Debe tener exactamente las keys: `version`, `name`, `functions`, `rewrites`, `headers`.
-
-### ❌ "Server misconfigured" al hacer login
-**Causa:** Las variables de entorno no se configuraron correctamente.  
-**Solución:**  
-1. Vercel → proyecto → Settings → Environment Variables
-2. Verifica que existen `APP_USER`, `APP_PASS`, `APP_SECRET`
-3. Después de modificar variables: **Deployments → el último → "Redeploy"**
-
-### ❌ "Credenciales incorrectas" aunque son correctas
-**Causa:** Espacios o caracteres extra al copiar/pegar el valor.  
-**Solución:** En Vercel → Environment Variables → edita cada variable y asegúrate de no tener espacios al inicio o final.
-
-### ❌ "Sesión inválida" inmediatamente después de login
-**Causa:** `APP_SECRET` tiene espacios o fue truncado al copiarlo.  
-**Solución:** Regenerar el APP_SECRET (Paso 2) y actualizar en Vercel → Redeploy.
-
-### ❌ Los datos no cargan (rueda giratoria infinita)
-**Causa:** `KONNECT_BEARER_TOKEN` expiró.  
-**Solución:** Obtener un nuevo token de Konnect Pro y actualizar la variable en Vercel → Redeploy.
-
----
-
-## Rotar credenciales
-
-Si sospechas que algo se filtró:
-
-```bash
-# Generar nuevo APP_SECRET
 node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"
 ```
 
-Actualizar en Vercel → Environment Variables → APP_SECRET → Save → Redeploy.  
-Esto invalida **todas las sesiones activas** de inmediato.
+Update in Vercel → Environment Variables → `APP_SECRET` → Save → Redeploy.
+This immediately invalidates **all active sessions**.

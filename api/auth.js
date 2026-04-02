@@ -73,7 +73,10 @@ module.exports = async function handler(req, res) {
     },
   ];
 
-  let matchedRole = null;
+  let matchedRole  = null;
+  let ownerCode    = null;
+  let operatorName = null;
+
   for (var i = 0; i < users.length; i++) {
     const u = users[i];
     if (u.user && u.pass && safeCompare(username, u.user) && safeCompare(password, u.pass)) {
@@ -82,11 +85,41 @@ module.exports = async function handler(req, res) {
     }
   }
 
+  // If not found in env vars, check Redis for empresario accounts
+  if (!matchedRole) {
+    const kvUrl   = process.env.UPSTASH_REDIS_REST_URL   || process.env.KV_REST_API_URL   || '';
+    const kvToken = process.env.UPSTASH_REDIS_REST_TOKEN || process.env.KV_REST_API_TOKEN || '';
+    if (kvUrl && kvToken) {
+      try {
+        const kvRes  = await fetch(kvUrl+'/get/pullman_operators_v1', {
+          headers: { Authorization: 'Bearer '+kvToken }
+        });
+        const kvJson = await kvRes.json();
+        if (kvJson.result) {
+          const operators = JSON.parse(kvJson.result);
+          const key = username.toLowerCase().trim();
+          const op  = operators[key];
+          if (op && safeCompare(password, op.password)) {
+            matchedRole  = 'empresario';
+            ownerCode    = op.ownerCode;
+            operatorName = op.name || op.ownerCode;
+          }
+        }
+      } catch(e) {
+        console.error('[auth] Redis lookup failed:', e.message);
+      }
+    }
+  }
+
   if (!matchedRole) {
     return res.status(401).json({ ok:false, error:'Credenciales incorrectas' });
   }
 
-  const now   = Math.floor(Date.now()/1000);
-  const token = signJWT({ sub:username, role:matchedRole, iat:now, exp:now+8*3600 }, SECRET);
-  return res.status(200).json({ ok:true, token, role:matchedRole });
+  const now     = Math.floor(Date.now()/1000);
+  const payload = { sub:username, role:matchedRole, iat:now, exp:now+8*3600 };
+  if (ownerCode)    payload.ownerCode    = ownerCode;
+  if (operatorName) payload.operatorName = operatorName;
+
+  const token = signJWT(payload, SECRET);
+  return res.status(200).json({ ok:true, token, role:matchedRole, ownerCode, operatorName });
 };
