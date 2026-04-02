@@ -937,9 +937,8 @@ function showEmpresarioView() {
   var el = $('empresario-view');
   if (el) {
     show('empresario-view');
-    $('ev-name').textContent    = state.operatorName || state.username;
-    $('ev-code').textContent    = state.ownerCode;
-    $('ev-username').textContent= state.username;
+    $('ev-name').textContent = state.operatorName || state.username;
+    $('ev-code').textContent = state.ownerCode;
     // set default dates
     var today = todayStr();
     $('ev-date-from').value = today;
@@ -1372,15 +1371,17 @@ $('login-btn').addEventListener('click', doLogin);
   $(id).addEventListener('keydown', function(e){ if(e.key==='Enter') doLogin(); });
 });
 
-$('btn-logout').addEventListener('click', function(){
-  if (state.role === 'empresario') {
-    // Empresario: simple logout, no summary
-    clearSession();
-    hide('empresario-view');
-    showLogin();
-  } else {
-    showSessionSummary();
-  }
+// Bind logout to ALL elements with id="btn-logout" (main app + empresario view)
+document.querySelectorAll('#btn-logout').forEach(function(btn) {
+  btn.addEventListener('click', function(){
+    if (state.role === 'empresario') {
+      clearSession();
+      hide('empresario-view');
+      showLogin();
+    } else {
+      showSessionSummary();
+    }
+  });
 });
 
 function showSessionSummary() {
