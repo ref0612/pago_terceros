@@ -1752,3 +1752,35 @@ body {
   .ev-pdf-btn,
   #btn-logout { display: none !important; }
 }
+
+/* ─── EV DAY EXPANDABLE ──────────────────────────────────── */
+.ev-day-section { border-bottom: 1px solid var(--border); }
+.ev-day-section:last-child { border-bottom: none; }
+
+.ev-day-row {
+  cursor: pointer;
+  transition: background .1s;
+  border-bottom: none; /* section handles the border */
+}
+.ev-day-row:hover { background: var(--bg); }
+
+.ev-day-chevron {
+  font-size: 9px;
+  color: var(--text3);
+  flex-shrink: 0;
+  transition: transform .2s;
+  width: 14px;
+}
+
+/* Service table — hidden by default */
+.ev-svc-table {
+  display: none;
+  overflow-x: auto;
+  border-top: 1px solid var(--border);
+  background: rgba(248,250,252,.5);
+}
+
+/* Expanded state */
+.ev-day-section.ev-expanded .ev-svc-table { display: block; }
+.ev-day-section.ev-expanded .ev-day-chevron { transform: rotate(90deg); color: var(--accent); }
+.ev-day-section.ev-expanded .ev-day-row { background: var(--bg); }

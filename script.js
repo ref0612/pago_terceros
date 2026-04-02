@@ -411,8 +411,16 @@ function applyLang(lang) {
   var btnLogout = $('btn-logout');
   if (btnLogout) btnLogout.textContent = '⎋ ' + t('btn_logout');
 
+  // Update placeholder attributes (data-i18n-ph)
+  document.querySelectorAll('[data-i18n-ph]').forEach(function(el) {
+    el.placeholder = t(el.dataset.i18nPh);
+  });
+
   // Re-render cards if data is loaded (to update all dynamic strings)
   if (state.empresarios.length > 0) renderCards();
+
+  // Re-render empresario view if active
+  if (state.role === 'empresario' && evData.services && evData.services.length > 0) evRender();
 }
 
 /* ─── LOGIN ──────────────────────────────────────────────── */
@@ -988,10 +996,18 @@ async function evLoadData() {
     evRender();
   } catch(e) {
     console.error(e);
-    toast('Error loading data: ' + e.message);
+    toast('Error: ' + e.message);
   } finally {
     $('ev-loading').hidden = true;
   }
+}
+
+function evToggleDay(dayId) {
+  var section = document.getElementById(dayId);
+  if (!section) return;
+  var expanded = section.classList.toggle('ev-expanded');
+  var chevron  = section.querySelector('.ev-day-chevron');
+  if (chevron) chevron.textContent = expanded ? '▼' : '▶';
 }
 
 function evGetDayStatus(isoDate) {
@@ -1041,9 +1057,9 @@ function evRender() {
   // Comparison badges
   function diffBadge(diff) {
     if (diff===null) return '<span class="ev-diff ev-diff-neutral">—</span>';
-    var sign = diff>=0?'+':'';
+    var sign = diff>=0?'+':''; var vsText = t('ev_vs_prev');
     var cls  = diff>=0?'ev-diff-up':'ev-diff-down';
-    return '<span class="ev-diff '+cls+'">'+sign+diff+'% vs prev</span>';
+    return '<span class="ev-diff '+cls+'">'+sign+diff+'% '+vsText+'</span>';
   }
   $('ev-diff-prod').innerHTML  = diffBadge(prodDiff);
   $('ev-diff-final').innerHTML = diffBadge(netoDiff);
@@ -1051,7 +1067,7 @@ function evRender() {
   // ── Status overview (per day)
   var statusHtml = '';
   if (!days.length) {
-    statusHtml = '<div class="ev-empty">No services found for this period.</div>';
+    statusHtml = '<div class="ev-empty">'+t('ev_no_services')+'</div>';
   } else {
     days.forEach(function(d) {
       var status = evGetDayStatus(d);
@@ -1063,19 +1079,59 @@ function evRender() {
       var final  = ds.neto - aramco;
 
       var BADGE = { pending:'badge-pending', approved:'badge-approved', rejected:'badge-rejected', paid:'badge-paid' };
-      var LABEL = { pending:'Pending', approved:'Approved', rejected:'Rejected', paid:'Paid' };
+      var LABEL = { pending:t('ev_status_pending'), approved:t('ev_status_approved'), rejected:t('ev_status_rejected'), paid:t('ev_status_paid') };
+
+      // Build service rows for this day
+      var svcRows = dayRows.map(function(r) {
+        return '<tr>'+
+          '<td class="td-mono">'+r[COL.hora]+'</td>'+
+          '<td class="td-route">'+r[COL.origen]+' → '+r[COL.destino]+'</td>'+
+          '<td class="td-service">'+r[COL.servicio]+'</td>'+
+          '<td class="td-mono">'+r[COL.bus]+' · '+r[COL.patente].trim()+'</td>'+
+          '<td><span class="svc-state '+svcStateClass(r[COL.estado])+'">'+r[COL.estado]+'</span></td>'+
+          '<td class="td-amount num">'+r[COL.asientosSuc]+'</td>'+
+          '<td class="td-amount num">'+r[COL.produccion]+'</td>'+
+          '<td class="td-amount num">'+r[COL.comision]+'</td>'+
+          '<td class="td-neto">'+r[COL.totalNeto]+'</td>'+
+        '</tr>';
+      }).join('');
+
+      var tableHtml =
+        '<div class="ev-svc-table">'+
+          '<table class="services-mini-table">'+
+            '<thead><tr>'+
+              '<th>'+t('ev_th_time')+'</th><th>'+t('ev_th_route')+'</th><th>'+t('ev_th_service')+'</th><th>'+t('ev_th_bus')+'</th>'+
+              '<th>'+t('ev_th_status')+'</th><th class="num">'+t('ev_th_seats')+'</th>'+
+              '<th class="num">'+t('ev_th_production')+'</th><th class="num">'+t('ev_th_commission')+'</th><th class="num">'+t('ev_th_net')+'</th>'+
+            '</tr></thead>'+
+            '<tbody>'+svcRows+
+              '<tr class="subtotal-row">'+
+                '<td colspan="6" style="text-align:right;color:var(--text3)">'+t('ev_th_totals')+'</td>'+
+                '<td class="td-amount num">'+formatCLP(ds.prod)+'</td>'+
+                '<td class="td-amount num">'+formatCLP(ds.com)+'</td>'+
+                '<td class="td-neto">'+formatCLP(final)+'</td>'+
+              '</tr>'+
+            '</tbody>'+
+          '</table>'+
+        '</div>';
+
+      var dayId = 'ev-day-'+d.replace(/-/g,'');
 
       statusHtml +=
-        '<div class="ev-day-row">'+
-          '<div class="ev-day-date">'+toDisplay(d)+'</div>'+
-          '<div class="ev-day-stats">'+
-            '<span><span class="ev-lbl">Prod.</span> '+formatCLP(ds.prod)+'</span>'+
-            '<span class="ev-green"><span class="ev-lbl">Net</span> '+formatCLP(final)+'</span>'+
-            '<span class="ev-blue"><span class="ev-lbl">Svc</span> '+ds.count+'</span>'+
-          '</div>'+
-          '<span class="status-badge status-badge-sm '+BADGE[status]+'">'+LABEL[status]+'</span>'+
-          (status==='paid'&&pm?'<span class="ev-ref">Ref: '+pm.transferRef+'</span>':'')+(status==='approved'&&ap?'<span class="ev-approved-by">✓ '+ap.by+'</span>':'')
-        +'</div>';
+        '<div class="ev-day-section" id="'+dayId+'">'+
+          '<div class="ev-day-row" data-dayid="'+dayId+'" onclick="evToggleDay(this.getAttribute(\'data-dayid\'))">'+
+            '<div class="ev-day-chevron">▶</div>'+
+            '<div class="ev-day-date">'+toDisplay(d)+'</div>'+
+            '<div class="ev-day-stats">'+
+              '<span><span class="ev-lbl">'+t('ev_lbl_prod')+'</span> '+formatCLP(ds.prod)+'</span>'+
+              '<span class="ev-green"><span class="ev-lbl">'+t('ev_lbl_net')+'</span> '+formatCLP(final)+'</span>'+
+              '<span class="ev-blue"><span class="ev-lbl">'+t('ev_lbl_svc')+'</span> '+ds.count+'</span>'+
+            '</div>'+
+            '<span class="status-badge status-badge-sm '+BADGE[status]+'">'+LABEL[status]+'</span>'+
+            (status==='paid'&&pm?'<span class="ev-ref">'+t('ev_ref')+' '+pm.transferRef+'</span>':'')+(status==='approved'&&ap?'<span class="ev-approved-by">'+t('ev_approved_by')+' '+ap.by+'</span>':'')
+          +'</div>'+
+          tableHtml+
+        '</div>';
     });
   }
   $('ev-status-list').innerHTML = statusHtml;
@@ -1101,7 +1157,7 @@ function evRender() {
 
   // Promedio asientos
   var avgSeats = rows.length ? Math.round(tSeats/rows.length) : 0;
-  $('ev-metric-seats').textContent = avgSeats ? avgSeats+' seats/svc' : '—';
+  $('ev-metric-seats').textContent = avgSeats ? avgSeats+' '+t('ev_metric_seats').split('/')[1] : '—';
 
   // ── Daily evolution chart
   evRenderChart(byDay, days);
@@ -1179,14 +1235,14 @@ function evRenderChart(byDay, days) {
 async function showOperatorPanel() {
   $('operator-panel').hidden    = false;
   $('operator-backdrop').hidden = false;
-  $('op-list').innerHTML = '<div class="activity-loading">Loading…</div>';
+  $('op-list').innerHTML = '<div class="activity-loading">'+t('op_loading')+'</div>';
   $('op-error').hidden   = true;
 
   try {
     var json = await fetchOperators();
     var ops  = json.operators || [];
     if (!ops.length) {
-      $('op-list').innerHTML = '<div class="activity-empty">No operator accounts yet.</div>';
+      $('op-list').innerHTML = '<div class="activity-empty">'+t('op_empty')+'</div>';
       return;
     }
     $('op-list').innerHTML = ops.map(function(op) {
@@ -1198,7 +1254,7 @@ async function showOperatorPanel() {
             '<span class="op-user">@'+op.username+'</span>'+
           '</div>'+
         '</div>'+
-        '<button class="op-del-btn" data-username="'+op.username+'">Remove</button>'+
+        '<button class="op-del-btn" data-username="'+op.username+'">'+t('op_btn_remove')+'</button>'+
       '</div>';
     }).join('');
 
@@ -1208,14 +1264,14 @@ async function showOperatorPanel() {
         var uname = btn.dataset.username;
         showModal({
           icon:'✕', iconClass:'icon-reject',
-          title:'Remove operator access',
-          detail:'Remove login access for <strong>@'+uname+'</strong>? They will no longer be able to sign in.',
-          confirmText:'Remove', confirmClass:'btn-red', danger:true,
+          title:t('op_remove_title'),
+          detail:t('op_remove_detail')+' <strong>@'+uname+'</strong>? '+t('op_remove_note'),
+          confirmText:t('op_remove_ok'), confirmClass:'btn-red', danger:true,
           onConfirm: async function() {
             try {
               await deleteOperator(uname);
               showOperatorPanel();
-              toast('✓ @'+uname+' removed');
+              toast('✓ @'+uname+' '+t('op_toast_removed'));
             } catch(e) { toastError('Error: '+e.message); }
           }
         });
@@ -1236,12 +1292,12 @@ async function handleCreateOperator() {
   $('op-error').hidden = true;
 
   if (!username||!password||!ownerCode) {
-    $('op-error').textContent = 'Username, password and ENT code are required.';
+    $('op-error').textContent = t('op_err_required');
     $('op-error').hidden = false;
     return;
   }
   if (!/^ENT-\d+$/.test(ownerCode)) {
-    $('op-error').textContent = 'ENT code must match format ENT-XXXXX';
+    $('op-error').textContent = t('op_err_format');
     $('op-error').hidden = false;
     return;
   }
@@ -1249,7 +1305,7 @@ async function handleCreateOperator() {
     await createOperator({ username, password, ownerCode, name });
     $('op-new-user').value=$('op-new-pass').value=$('op-new-code').value=$('op-new-name').value='';
     showOperatorPanel();
-    toast('✓ Operator @'+username+' created');
+    toast('✓ @'+username+' '+t('op_toast_created'));
   } catch(e) {
     $('op-error').textContent = 'Error: '+e.message;
     $('op-error').hidden = false;
