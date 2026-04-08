@@ -8,8 +8,7 @@ const COL = {
   fecha:0, hora:1, origen:2, destino:3, ruta:4, servicio:5, estado:6,
   bus:7, patente:8, totalAsientos:9, rut:10, razonSocial:11,
   asientosSuc:12, recaudSuc:13, asientosCam:14, recaudCam:15,
-  produccion:16, comision:17, totalNeto:18,
-  // gastos: null, // ← TODO Konnect: agregar índice cuando esté disponible
+  produccion:16, comision:17, gastos:18, totalNeto:19,
 };
 
 /* ─── STATE ──────────────────────────────────────────────── */
@@ -77,7 +76,7 @@ function calcStats(rows) {
   (rows||[]).forEach(function(r) {
     prod   += parseMoney(r[COL.produccion]);
     com    += parseMoney(r[COL.comision]);
-    // gastos += parseMoney(r[COL.gastos]); // TODO: descomentar cuando Konnect agregue la columna
+    gastos += parseMoney(r[COL.gastos]);
     neto   += parseMoney(r[COL.totalNeto]);
   });
   return { count:(rows||[]).length, prod:prod, com:com, gastos:gastos, neto:neto };
